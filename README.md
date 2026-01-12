@@ -114,60 +114,192 @@ Phonemizer requires eSpeak NG to function.
 
 ---
 
-### 3. Environment Setup (Choose ONE method)
+### 3. Environment Setup (Recommended)
 
-#### Method 1: Standard with `uv` (Recommended)
-This is the fastest and most reliable way to manage dependencies.
-
-**A. Install `uv`** (If you haven't already):
+**A. Install `uv`** (Fast Python package manager):
 - **Windows:** `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`
 - **Linux/macOS:** `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
-**B. Choose your hardware:**
+**B. Install dependencies:**
 
-**Option A: For GPU Users (NVIDIA 30xx/40xx/50xx)**
-
-> [!IMPORTANT]
-> **Update your NVIDIA Drivers & Install CUDA Toolkit!**
-> This project uses **CUDA 12.8**. Please ensure your NVIDIA driver is up-to-date (support CUDA 12.8 or newer) to avoid compatibility issues, especially on RTX 30 series.
->
-> To use `lmdeploy`, you **MUST** install the **NVIDIA GPU Computing Toolkit**: [https://developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads).
+> [!TIP]
+> **For NVIDIA GPU Users:** To use LMDeploy (Turbo mode), ensure you have updated drivers and **CUDA Toolkit 12.8+**.
 
 ```bash
+# Default setup (Includes GPU support)
 uv sync
+
+# CPU-only mode (No GPU dependencies)
+uv sync --no-default-groups
 ```
 
-**Option B: For CPU-only Users**
+---
 
-1. Switch to CPU configuration:
-   ```bash
-   # Windows:
-   ren pyproject.toml pyproject.toml.bak
-   copy pyproject.toml.cpu pyproject.toml
-   
-   # Linux/macOS:
-   mv pyproject.toml pyproject.toml.bak
-   cp pyproject.toml.cpu pyproject.toml
-   ```
-2. Install dependencies:
-   ```bash
-   uv sync
-   ```
+### 4. Quick Start (Web UI)
 
-**C. Run the Application:**
+Once environment is ready, start the Web UI with a single command:
+
 ```bash
 uv run gradio_app.py
 ```
 
-Then access the Web UI at `http://127.0.0.1:7860`.
+Access the Web UI at `http://127.0.0.1:7860`.
 
 ---
+
+
+---
+
+### 📦 Using as a Python SDK (via `pip`)
+
+If you want to integrate VieNeu-TTS into your own project:
+
+#### 1. Windows (Hassle-free setup)
+We provide pre-built CPU wheels for `llama-cpp-python` (version 0.3.16) for Python 3.10 to 3.14 to avoid compilation errors.
+
+```bash
+pip install vieneu --extra-index-url https://pnnbao97.github.io/llama-cpp-python-v0.3.16/cpu/
+```
+
+#### 2. Linux / macOS / Others
+```bash
+pip install vieneu
+```
+
+#### 3. GPU Support (Remote Server)
+
+For high-performance GPU inference without local complexity, you can set up a remote server using `lmdeploy`.
+
+**A. On the Server (with GPU):**
+1. Install LMDeploy: `pip install lmdeploy[all]`
+2. Launch the API Server:
+```bash
+lmdeploy serve api_server pnnbao-ump/VieNeu-TTS-0.3B --server-port 23333 --tp 1
+```
+
+**B. On the Client (CPU/Laptop):**
+Connect to the server using the SDK:
+```python
+from vieneu import Vieneu
+
+# Connect to the remote server
+tts = Vieneu(mode="remote", api_base="http://your-server-ip:23333/v1", model_name="pnnbao-ump/VieNeu-TTS-0.3B")
+```
+
+#### 4. Advanced Usage Example (Full Features)
+
+Here is a comprehensive example showing how to initialize, manage voices, clone custom voices, and control generation.
+
+```python
+"""
+Demo VieNeuSDK v1.1.3 - Full Features Guide
+"""
+
+import time
+import soundfile as sf
+from vieneu import Vieneu
+from pathlib import Path
+
+def main():
+    print("🚀 Initializing VieNeu SDK (v1.1.3)...")
+    
+    # Initialize SDK
+    # Default: "pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf" (Speed & CPU Optimized)
+    #
+    # You can change 'backbone_repo' to balance Quality vs Speed:
+    # 1. Better Quality (slower than q4): "pnnbao-ump/VieNeu-TTS-0.3B-q8-gguf"
+    # 2. PyTorch 0.3B (Fast, uncompressed): "pnnbao-ump/VieNeu-TTS-0.3B"
+    # 3. PyTorch 0.5B (Best Quality, heavy): "pnnbao-ump/VieNeu-TTS"
+    # You can also use a GGUF version merged with your own LoRA adapter.
+    # See finetuning guide: https://github.com/pnnbao97/VieNeu-TTS/tree/main/finetune
+    
+    # Mode selection:
+    # - mode="standard" (Default): Runs locally using GGUF (CPU) or PyTorch
+    # - mode="remote": Connects to the LMDeploy server setup above for max speed
+    
+    tts = Vieneu()
+    # Or to use Remote mode (Must start 'lmdeploy serve api_server pnnbao-ump/VieNeu-TTS-0.3B --server-port 23333 --tp 1' in another tab/machine first):
+    # tts = Vieneu(mode="remote", api_base="http://localhost:23333/v1", model_name="pnnbao-ump/VieNeu-TTS-0.3B")
+    # Example for using Q8 for better quality:
+    # tts = Vieneu(backbone_repo="pnnbao-ump/VieNeu-TTS-0.3B-q8-gguf")
+
+    # ---------------------------------------------------------
+    # PART 1: PRESET VOICES
+    # ---------------------------------------------------------
+    print("\n--- 1. Available Preset Voices ---")
+    available_voices = tts.list_preset_voices()
+    print("📋 Voices:", available_voices)
+    
+    # Select a preset voice
+    current_voice = tts.get_preset_voice("Binh")
+    print("✅ Selected voice: Binh")
+
+
+    # ---------------------------------------------------------
+    # PART 2: CREATE & SAVE CUSTOM VOICE
+    # ---------------------------------------------------------
+    print("\n--- 2. Create Custom Voice ---")
+    
+    # Replace with your actual .wav file path and its exact transcript (including punctuation)
+    sample_audio = Path(__file__).parent / "example.wav"
+    sample_text = "ví dụ 2. tính trung bình của dãy số."
+
+    if sample_audio.exists():
+        voice_name = "MyCustomVoice"
+        
+        print(f"🎙️ Cloning voice from: {sample_audio.name}")
+        
+        # 'clone_voice' now supports saving directly with 'name' argument
+        custom_voice = tts.clone_voice(
+            audio_path=sample_audio,
+            text=sample_text,
+            name=voice_name  # <-- Automatically saves voice to system
+        )
+        
+        print(f"✅ Voice created and saved as: '{voice_name}'")
+        
+        # Verify functionality
+        print("📋 Voice list after adding:", tts.list_preset_voices())
+        
+        # Switch to new voice
+        current_voice = custom_voice
+    else:
+        print("⚠️ Sample audio not found. Skipping...")
+
+
+    # ---------------------------------------------------------
+    # PART 3: SYNTHESIS WITH ADVANCED PARAMETERS
+    # ---------------------------------------------------------
+    print("\n--- 3. Speech Synthesis ---")
+    
+    text_input = "Xin chào, tôi là VieNeu-TTS. Tôi có thể giúp bạn đọc sách, làm chatbot thời gian thực, hoặc thậm chí clone giọng nói của bạn."
+    
+    # Generate with specific temperature
+    print("🎧 Generating...")
+    audio = tts.infer(
+        text=text_input,
+        voice=current_voice,
+        temperature=1.0,  # Adjustable: Lower (0.1) -> Stable, Higher (1.0+) -> Expressive
+        top_k=50
+    )
+    sf.write("output.wav", audio, 24000)
+    print("💾 Saved: output.wav")
+
+    # ---------------------------------------------------------
+    # CLEANUP
+    # ---------------------------------------------------------
+    tts.close()
+    print("\n✅ Done!")
+
+if __name__ == "__main__":
+    main()
+```
+
 
 #### Method 2: Automatic with Makefile (Alternative)
 Best if you have `make` installed (standard on Linux/macOS, or via Git Bash on Windows). It handles configuration swaps automatically.
 
-- **Setup GPU:** `make setup-gpu`
-- **Setup CPU:** `make setup-cpu`
+- **Setup:** `make setup`
 - **Run Demo:** `make demo`
 
 
@@ -209,7 +341,7 @@ For detailed deployment instructions, including production setup, see [docs/Depl
 
 ```
 VieNeu-TTS/
-├── vieneu_tts/            # Core engine implementation (VieNeuTTS & FastVieNeuTTS)
+├── vieneu/            # Core engine implementation (VieNeuTTS & FastVieNeuTTS)
 ├── finetune/              # LoRA training pipeline
 │   ├── configs/           # Training & LoRA configurations
 │   ├── data_scripts/      # Data filtering & VQ encoding tools
@@ -222,7 +354,7 @@ VieNeu-TTS/
 ├── examples/              # Usage examples and testing audio references
 ├── gradio_app.py          # Modern Web UI with LoRA & Streaming support
 ├── config.yaml            # Model, Codec, and Voice registry
-├── pyproject.toml         # Dependency management (UV/PIP)
+├── pyproject.toml         # Unified dependency management (UV/PIP)
 ├── Makefile               # Shortcuts for setup and execution
 └── docker-compose.yml     # Docker orchestration for CPU/GPU modes
 ```

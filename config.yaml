@@ -44,26 +44,26 @@ codec_configs:
 
 voice_samples:
   "Tuyên (nam miền Bắc)":
-    audio: ./sample/Tuyên (nam miền Bắc).wav
-    text: ./sample/Tuyên (nam miền Bắc).txt
-    codes: ./sample/Tuyên (nam miền Bắc).pt
+    audio: ./vieneu/assets/samples/Tuyên (nam miền Bắc).wav
+    text: ./vieneu/assets/samples/Tuyên (nam miền Bắc).txt
+    codes: ./vieneu/assets/samples/Tuyên (nam miền Bắc).pt
   "Vĩnh (nam miền Nam)":
-    audio: ./sample/Vĩnh (nam miền Nam).wav
-    text: ./sample/Vĩnh (nam miền Nam).txt
-    codes: ./sample/Vĩnh (nam miền Nam).pt
+    audio: ./vieneu/assets/samples/Vĩnh (nam miền Nam).wav
+    text: ./vieneu/assets/samples/Vĩnh (nam miền Nam).txt
+    codes: ./vieneu/assets/samples/Vĩnh (nam miền Nam).pt
   "Bình (nam miền Bắc)":
-    audio: ./sample/Bình (nam miền Bắc).wav
-    text: ./sample/Bình (nam miền Bắc).txt
-    codes: ./sample/Bình (nam miền Bắc).pt
+    audio: ./vieneu/assets/samples/Bình (nam miền Bắc).wav
+    text: ./vieneu/assets/samples/Bình (nam miền Bắc).txt
+    codes: ./vieneu/assets/samples/Bình (nam miền Bắc).pt
   "Đoan (nữ miền Nam)":
-    audio: ./sample/Đoan (nữ miền Nam).wav
-    text: ./sample/Đoan (nữ miền Nam).txt
-    codes: ./sample/Đoan (nữ miền Nam).pt
+    audio: ./vieneu/assets/samples/Đoan (nữ miền Nam).wav
+    text: ./vieneu/assets/samples/Đoan (nữ miền Nam).txt
+    codes: ./vieneu/assets/samples/Đoan (nữ miền Nam).pt
   "Ngọc (nữ miền Bắc)":
-    audio: ./sample/Ngọc (nữ miền Bắc).wav
-    text: ./sample/Ngọc (nữ miền Bắc).txt
-    codes: ./sample/Ngọc (nữ miền Bắc).pt
+    audio: ./vieneu/assets/samples/Ngọc (nữ miền Bắc).wav
+    text: ./vieneu/assets/samples/Ngọc (nữ miền Bắc).txt
+    codes: ./vieneu/assets/samples/Ngọc (nữ miền Bắc).pt
   "Ly (nữ miền Bắc)":
-    audio: ./sample/Ly (nữ miền Bắc).wav
-    text: ./sample/Ly (nữ miền Bắc).txt
-    codes: ./sample/Ly (nữ miền Bắc).pt
+    audio: ./vieneu/assets/samples/Ly (nữ miền Bắc).wav
+    text: ./vieneu/assets/samples/Ly (nữ miền Bắc).txt
+    codes: ./vieneu/assets/samples/Ly (nữ miền Bắc).pt

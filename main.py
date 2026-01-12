@@ -1,80 +1,102 @@
-from vieneu_tts import VieNeuTTS
+"""
+Demo VieNeuSDK v1.1.3 - Full Features Guide
+"""
+
+import time
 import soundfile as sf
-import torch
-import os
+from vieneu import Vieneu
+from pathlib import Path
 
-device = "cpu"
-
-input_texts = [
-    "Các khóa học trực tuyến đang giúp học sinh tiếp cận kiến thức mọi lúc mọi nơi. Giáo viên sử dụng video, bài tập tương tác và thảo luận trực tuyến để nâng cao hiệu quả học tập.",
-
-    "Các nghiên cứu về bệnh Alzheimer cho thấy tác dụng tích cực của các bài tập trí não và chế độ dinh dưỡng lành mạnh, giúp giảm tốc độ suy giảm trí nhớ ở người cao tuổi.",
-
-    "Một tiểu thuyết trinh thám hiện đại dẫn dắt độc giả qua những tình tiết phức tạp, bí ẩn, kết hợp yếu tố tâm lý sâu sắc khiến người đọc luôn hồi hộp theo dõi diễn biến câu chuyện.",
-
-    "Các nhà khoa học nghiên cứu gen người phát hiện những đột biến mới liên quan đến bệnh di truyền. Điều này giúp nâng cao khả năng chẩn đoán và điều trị.",
-]
-
-output_dir = "./output_audio"
-os.makedirs(output_dir, exist_ok=True)
-
-def main(backbone="pnnbao-ump/VieNeu-TTS-q4-gguf", codec="neuphonic/neucodec-onnx-decoder"):
-    """
-    In the sample directory, there are wav files and txt files with matching names.
-    These are pre-prepared reference files for testing with Vietnamese names:
-    - Bình (nam miền Bắc) - Male, North accent
-    - Tuyên (nam miền Bắc) - Male, North accent
-    - Nguyên (nam miền Nam) - Male, South accent
-    - Sơn (nam miền Nam) - Male, South accent
-    - Vĩnh (nam miền Nam) - Male, South accent
-    - Hương (nữ miền Bắc) - Female, North accent
-    - Ly (nữ miền Bắc) - Female, North accent
-    - Ngọc (nữ miền Bắc) - Female, North accent
-    - Đoan (nữ miền Nam) - Female, South accent
-    - Dung (nữ miền Nam) - Female, South accent
+def main():
+    print("🚀 Initializing VieNeu SDK (v1.1.3)...")
     
-    Note: The model can clone any voice you provide (with corresponding text).
-    However, quality may not match the sample files. For best results, finetune
-    the model on your target voice. See finetune guide at:
-    https://github.com/pnnbao-ump/VieNeuTTS/blob/main/finetune.ipynb
-    """
-    # Male voice (South accent)
-    ref_audio_path = "./sample/Vĩnh (nam miền Nam).wav"
-    ref_text_path = "./sample/Vĩnh (nam miền Nam).txt"
-    ref_codes_path = "./sample/Vĩnh (nam miền Nam).pt"
+    # Initialize SDK
+    # Default: "pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf" (Speed & CPU Optimized)
+    #
+    # You can change 'backbone_repo' to balance Quality vs Speed:
+    # 1. Better Quality (slower than q4): "pnnbao-ump/VieNeu-TTS-0.3B-q8-gguf"
+    # 2. PyTorch 0.3B (Fast, uncompressed): "pnnbao-ump/VieNeu-TTS-0.3B"
+    # 3. PyTorch 0.5B (Best Quality, heavy): "pnnbao-ump/VieNeu-TTS"
+    # You can also use a GGUF version merged with your own LoRA adapter.
+    # See finetuning guide: https://github.com/pnnbao97/VieNeu-TTS/tree/main/finetune
     
-    # Female voice (South accent) - uncomment to use
-    # ref_audio_path = "./sample/Đoan (nữ miền Nam).wav"
-    # ref_text_path = "./sample/Đoan (nữ miền Nam).txt"
-
-    ref_text_raw = open(ref_text_path, "r", encoding="utf-8").read()
+    # Mode selection:
+    # - mode="standard" (Default): Runs locally using GGUF (CPU) or PyTorch
+    # - mode="remote": Connects to the LMDeploy server setup above for max speed
     
-    if not ref_audio_path or not ref_text_raw:
-        print("No reference audio or text provided.")
-        return None
+    tts = Vieneu()
+    # Or to use Remote mode (Must start 'lmdeploy serve api_server pnnbao-ump/VieNeu-TTS-0.3B --server-port 23333 --tp 1' in another tab/machine first):
+    # tts = Vieneu(model_name="pnnbao-ump/VieNeu-TTS-0.3B", mode="remote", api_base="http://localhost:23333/v1")
+    # Example for using Q8 for better quality:
+    # tts = Vieneu(backbone_repo="pnnbao-ump/VieNeu-TTS-0.3B-q8-gguf")
 
-    # Initialize VieNeuTTS-1000h
-    tts = VieNeuTTS(
-        backbone_repo=backbone,
-        backbone_device=device,
-        codec_repo=codec,
-        codec_device=device
-    )
+    # ---------------------------------------------------------
+    # PART 1: PRESET VOICES
+    # ---------------------------------------------------------
+    print("\n--- 1. Available Preset Voices ---")
+    available_voices = tts.list_preset_voices()
+    print("📋 Voices:", available_voices)
+    
+    # Select a preset voice
+    current_voice = tts.get_preset_voice("Binh")
+    print("✅ Selected voice: Binh")
 
-    if codec == "neuphonic/neucodec-onnx-decoder":
-        print("Load reference codes...")
-        ref_codes = torch.load(ref_codes_path, map_location=device)
+
+    # ---------------------------------------------------------
+    # PART 2: CREATE & SAVE CUSTOM VOICE
+    # ---------------------------------------------------------
+    print("\n--- 2. Create Custom Voice ---")
+    
+    # Replace with your actual .wav file path and its exact transcript (including punctuation)
+    sample_audio = Path(__file__).parent / "example.wav"
+    sample_text = "ví dụ 2. tính trung bình của dãy số."
+
+    if sample_audio.exists():
+        voice_name = "MyCustomVoice"
+        
+        print(f"🎙️ Cloning voice from: {sample_audio.name}")
+        
+        # 'clone_voice' now supports saving directly with 'name' argument
+        custom_voice = tts.clone_voice(
+            audio_path=sample_audio,
+            text=sample_text,
+            name=voice_name  # <-- Automatically saves voice to system
+        )
+        
+        print(f"✅ Voice created and saved as: '{voice_name}'")
+        
+        # Verify functionality
+        print("📋 Voice list after adding:", tts.list_preset_voices())
+        
+        # Switch to new voice
+        current_voice = custom_voice
     else:
-        print("Encoding reference audio...")
-        ref_codes = tts.encode_reference(ref_audio_path)
+        print("⚠️ Sample audio not found. Skipping...")
 
-    # Generate speech for all input texts
-    for i, text in enumerate(input_texts, 1):
-        print(f"Generating audio {i}/{len(input_texts)}: {text[:50]}...")
-        wav = tts.infer(text, ref_codes, ref_text_raw)
-        output_path = os.path.join(output_dir, f"output_{i}.wav")
-        sf.write(output_path, wav, 24000)
-        print(f"✓ Saved to {output_path}")
+
+    # ---------------------------------------------------------
+    # PART 3: SYNTHESIS WITH ADVANCED PARAMETERS
+    # ---------------------------------------------------------
+    print("\n--- 3. Speech Synthesis ---")
+    
+    text_input = "Xin chào, tôi là VieNeu-TTS. Tôi có thể giúp bạn đọc sách, làm chatbot thời gian thực, hoặc thậm chí clone giọng nói của bạn."
+    
+    # Generate with specific temperature
+    print("🎧 Generating...")
+    audio = tts.infer(
+        text=text_input,
+        voice=current_voice,
+        temperature=1.0,  # Adjustable: Lower (0.1) -> Stable, Higher (1.0+) -> Expressive
+        top_k=50
+    )
+    sf.write("output.wav", audio, 24000)
+    print("💾 Saved: output.wav")
+
+    # ---------------------------------------------------------
+    # CLEANUP
+    # ---------------------------------------------------------
+    tts.close()
+    print("\n✅ Done!")
 
 if __name__ == "__main__":
     main()

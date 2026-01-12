@@ -4,11 +4,13 @@ import librosa
 import numpy as np
 import torch
 from neucodec import NeuCodec, DistillNeuCodec
-from utils.phonemize_text import phonemize_with_dict
+from vieneu_utils.phonemize_text import phonemize_with_dict
+from vieneu_utils.core_utils import split_text_into_chunks
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import re
 import gc
+import requests
 
 # ============================================================================
 # Shared Utilities
@@ -41,6 +43,47 @@ def _linear_overlap_add(frames: list[np.ndarray], stride: int) -> np.ndarray:
     return out / sum_weight
 
 
+def _join_audio_chunks(chunks: list[np.ndarray], sr: int, silence_p: float = 0.0, crossfade_p: float = 0.0) -> np.ndarray:
+    """Join audio chunks with optional silence padding and crossfading."""
+    if not chunks:
+        return np.array([], dtype=np.float32)
+    if len(chunks) == 1:
+        return chunks[0]
+    
+    silence_samples = int(sr * silence_p)
+    crossfade_samples = int(sr * crossfade_p)
+    
+    final_wav = chunks[0]
+    
+    for i in range(1, len(chunks)):
+        next_chunk = chunks[i]
+        
+        if silence_samples > 0:
+            # 1. Add silence between chunks
+            silence = np.zeros(silence_samples, dtype=np.float32)
+            final_wav = np.concatenate([final_wav, silence, next_chunk])
+        elif crossfade_samples > 0:
+            # 2. Crossfade between chunks
+            overlap = min(len(final_wav), len(next_chunk), crossfade_samples)
+            if overlap > 0:
+                fade_out = np.linspace(1.0, 0.0, overlap, dtype=np.float32)
+                fade_in = np.linspace(0.0, 1.0, overlap, dtype=np.float32)
+                
+                blended = (final_wav[-overlap:] * fade_out + next_chunk[:overlap] * fade_in)
+                final_wav = np.concatenate([
+                    final_wav[:-overlap],
+                    blended,
+                    next_chunk[overlap:]
+                ])
+            else:
+                final_wav = np.concatenate([final_wav, next_chunk])
+        else:
+            # 3. Simple concatenation
+            final_wav = np.concatenate([final_wav, next_chunk])
+            
+    return final_wav
+
+
 def _compile_codec_with_triton(codec):
     """Compile codec with Triton for faster decoding (Windows/Linux compatible)"""
     try:
@@ -57,10 +100,9 @@ def _compile_codec_with_triton(codec):
         return True
         
     except ImportError:
-        print("   ⚠️ Triton not found. Install for faster speed:")
-        print("      • Linux: pip install triton")
-        print("      • Windows: pip install triton-windows")
-        print("      (Optional but recommended)")
+        # Silently fail for optional triton optimization
+        return False
+    except Exception:
         return False
 
 
@@ -85,9 +127,9 @@ class VieNeuTTS:
     
     def __init__(
         self,
-        backbone_repo="pnnbao-ump/VieNeu-TTS",
+        backbone_repo="pnnbao-ump/VieNeu-TTS-0.3B-q4-gguf",
         backbone_device="cpu",
-        codec_repo="neuphonic/neucodec",
+        codec_repo="neuphonic/distill-neucodec",
         codec_device="cpu",
     ):
         """
@@ -118,8 +160,20 @@ class VieNeuTTS:
         self.tokenizer = None
 
         # Load models
-        self._load_backbone(backbone_repo, backbone_device)
+        if backbone_repo:
+            self._load_backbone(backbone_repo, backbone_device)
         self._load_codec(codec_repo, codec_device)
+
+        # Asset path
+        self.assets_dir = Path(__file__).parent / "assets" / "samples"
+        self._preset_voices = {
+            "Binh": "Bình (nam miền Bắc)",
+            "Tuyen": "Tuyên (nam miền Bắc)",
+            "Vinh": "Vĩnh (nam miền Nam)",
+            "Doan": "Đoan (nữ miền Nam)",
+            "Ly": "Ly (nữ miền Bắc)",
+            "Ngoc": "Ngọc (nữ miền Bắc)",
+        }
 
         # Load watermarker (optional)
         try:
@@ -128,6 +182,54 @@ class VieNeuTTS:
             print("   🔒 Audio watermarking initialized (Perth)")
         except (ImportError, AttributeError):
             self.watermarker = None
+    
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __del__(self):
+        """Finalizer to ensure resources are released."""
+        try:
+            self.close()
+        except:
+            pass
+
+    def close(self):
+        """Explicitly release model resources."""
+        # Use a local reference to modules to avoid NoneType errors during shutdown
+        _gc = globals().get("gc", None)
+        _torch = globals().get("torch", None)
+        
+        try:
+            if hasattr(self, "backbone") and self.backbone is not None:
+                # For GGUF models, call close() to avoid shutdown errors
+                if getattr(self, "_is_quantized_model", False):
+                    try:
+                        # Defensive check if backbone still has close method
+                        close_fn = getattr(self.backbone, "close", None)
+                        if callable(close_fn):
+                            close_fn()
+                    except:
+                        pass
+                self.backbone = None
+            
+            if hasattr(self, "codec") and self.codec is not None:
+                self.codec = None
+                
+            # Final memory cleanup - safely check for locally captured modules
+            if _gc is not None:
+                _gc.collect()
+            
+            if _torch is not None:
+                if hasattr(_torch, "cuda") and _torch.cuda is not None:
+                    if callable(getattr(_torch.cuda, "is_available", None)) and _torch.cuda.is_available():
+                        if callable(getattr(_torch.cuda, "empty_cache", None)):
+                            _torch.cuda.empty_cache()
+        except:
+            # Silence all exit errors as we are shutting down anyway
+            pass
     
     def _load_backbone(self, backbone_repo, backbone_device):
         # MPS device validation
@@ -259,6 +361,78 @@ class VieNeuTTS:
             print(f"   ⚠️ Error during unload: {e}")
             return False
 
+
+    def list_preset_voices(self):
+        """List available preset voices included in the package."""
+        return list(self._preset_voices.keys())
+
+    def get_preset_voice(self, voice_name: str):
+        """
+        Get reference codes and text for a preset voice.
+        
+        Returns:
+            dict: { 'codes': torch.Tensor, 'text': str }
+        """
+        if voice_name not in self._preset_voices:
+            raise ValueError(f"Voice '{voice_name}' not found. Available: {self.list_preset_voices()}")
+        
+        base_name = self._preset_voices[voice_name]
+        audio_path = self.assets_dir / f"{base_name}.wav"
+        text_path = self.assets_dir / f"{base_name}.txt"
+        
+        # Prefer pre-encoded codes if they exist (faster)
+        pt_path = self.assets_dir / f"{base_name}.pt"
+        if pt_path.exists():
+            ref_codes = torch.load(pt_path, map_location="cpu", weights_only=True)
+        else:
+            ref_codes = self.encode_reference(audio_path)
+            
+        with open(text_path, "r", encoding="utf-8") as f:
+            ref_text = f.read().strip()
+            
+        return {"codes": ref_codes, "text": ref_text}
+
+    def clone_voice(self, audio_path: str | Path, text: str, name: str = None):
+        """
+        Create a new custom voice from reference audio.
+        
+        Args:
+            audio_path: Path to the reference audio file
+            text: The exact transcript of the reference audio
+            name: Optional name for saving this voice permanently.
+            
+        Returns:
+            dict: { 'codes': torch.Tensor, 'text': str }
+        """
+        ref_codes = self.encode_reference(audio_path)
+        voice = {"codes": ref_codes, "text": text}
+        
+        if name:
+            self.save_voice(name, voice)
+            
+        return voice
+
+    def save_voice(self, name: str, voice: dict):
+        """Save a voice to the local assets directory for future use."""
+        safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip()
+        base_path = self.assets_dir / safe_name
+        
+        try:
+            # Save codes
+            torch.save(voice['codes'], base_path.with_suffix('.pt'))
+            
+            # Save text
+            with open(base_path.with_suffix('.txt'), 'w', encoding='utf-8') as f:
+                f.write(voice['text'])
+                
+            print(f"✅ Voice '{name}' saved to {self.assets_dir}")
+            
+            # Update internal cache if applicable
+            self._preset_voices[name] = safe_name
+            
+        except Exception as e:
+            print(f"⚠️ Failed to save voice '{name}': {e}")
+
     def encode_reference(self, ref_audio_path: str | Path):
         """Encode reference audio to codes"""
         wav, _ = librosa.load(ref_audio_path, sr=16000, mono=True)
@@ -267,50 +441,95 @@ class VieNeuTTS:
             ref_codes = self.codec.encode_code(audio_or_path=wav_tensor).squeeze(0).squeeze(0)
         return ref_codes
 
-    def infer(self, text: str, ref_codes: np.ndarray | torch.Tensor, ref_text: str) -> np.ndarray:
+    def infer(self, text: str, ref_codes: np.ndarray | torch.Tensor = None, ref_text: str = None, max_chars: int = 256, silence_p: float = 0.0, crossfade_p: float = 0.0, voice: dict = None, temperature: float = 1.0, top_k: int = 50) -> np.ndarray:
         """
         Perform inference to generate speech from text using the TTS model and reference audio.
+        Automatically splits long text into chunks.
 
         Args:
             text (str): Input text to be converted to speech.
             ref_codes (np.ndarray | torch.tensor): Encoded reference.
             ref_text (str): Reference text for reference audio.
+            max_chars (int): Maximum characters per chunk for splitting.
+            silence_p (float): Seconds of silence to pad between chunks.
+            crossfade_p (float): Seconds of crossfade between chunks (ignored if silence_p > 0).
+            voice (dict): Optional dictionary containing 'codes' and 'text' (overrides ref_codes/ref_text).
+            temperature (float): Sampling temperature (default 1.0).
+            top_k (int): Top-k sampling (default 50).
         Returns:
             np.ndarray: Generated speech waveform.
         """
+        if voice is not None:
+            ref_codes = voice.get('codes', ref_codes)
+            ref_text = voice.get('text', ref_text)
+            
+        if ref_codes is None or ref_text is None:
+             raise ValueError("Must provide either 'voice' dict or both 'ref_codes' and 'ref_text'.")
 
-        # Generate tokens
-        if self._is_quantized_model:
-            output_str = self._infer_ggml(ref_codes, ref_text, text)
-        else:
-            prompt_ids = self._apply_chat_template(ref_codes, ref_text, text)
-            output_str = self._infer_torch(prompt_ids)
+        # Split text into chunks for better processing of long text
+        chunks = split_text_into_chunks(text, max_chars=max_chars)
+        
+        if not chunks:
+            return np.array([], dtype=np.float32)
 
-        # Decode
-        wav = self._decode(output_str)
+        all_wavs = []
+        for chunk in chunks:
+            # Generate tokens
+            if self._is_quantized_model:
+                output_str = self._infer_ggml(ref_codes, ref_text, chunk, temperature, top_k)
+            else:
+                prompt_ids = self._apply_chat_template(ref_codes, ref_text, chunk)
+                output_str = self._infer_torch(prompt_ids, temperature, top_k)
+
+            # Decode
+            wav = self._decode(output_str)
+            all_wavs.append(wav)
+
+        # Join all chunks with optional padding/crossfade
+        final_wav = _join_audio_chunks(all_wavs, self.sample_rate, silence_p, crossfade_p)
 
         # Apply watermark if available
         if self.watermarker:
-            wav = self.watermarker.apply_watermark(wav, sample_rate=self.sample_rate)
+            final_wav = self.watermarker.apply_watermark(final_wav, sample_rate=self.sample_rate)
 
-        return wav
+        return final_wav
 
-    def infer_stream(self, text: str, ref_codes: np.ndarray | torch.Tensor, ref_text: str) -> Generator[np.ndarray, None, None]:
+    def infer_stream(self, text: str, ref_codes: np.ndarray | torch.Tensor = None, ref_text: str = None, max_chars: int = 256, voice: dict = None, temperature: float = 1.0, top_k: int = 50) -> Generator[np.ndarray, None, None]:
         """
         Perform streaming inference to generate speech from text using the TTS model and reference audio.
+        Automatically splits long text into chunks and streams them.
 
         Args:
             text (str): Input text to be converted to speech.
             ref_codes (np.ndarray | torch.tensor): Encoded reference.
             ref_text (str): Reference text for reference audio.
+            max_chars (int): Maximum characters per chunk for splitting.
+            voice (dict): Optional dictionary containing 'codes' and 'text'.
+            temperature (float): Sampling temperature.
+            top_k (int): Top-k sampling.
         Yields:
             np.ndarray: Generated speech waveform.
         """
+        if voice is not None:
+            ref_codes = voice.get('codes', ref_codes)
+            ref_text = voice.get('text', ref_text)
+            
+        if ref_codes is None or ref_text is None:
+             raise ValueError("Must provide either 'voice' dict or both 'ref_codes' and 'ref_text'.")
 
-        if self._is_quantized_model:
-            return self._infer_stream_ggml(ref_codes, ref_text, text)
-        else:
-            raise NotImplementedError("Streaming is not implemented for the torch backend!")
+        chunks = split_text_into_chunks(text, max_chars=max_chars)
+        
+        for chunk in chunks:
+            if self._is_quantized_model:
+                yield from self._infer_stream_ggml(ref_codes, ref_text, chunk, temperature, top_k)
+            else:
+                # Fallback for torch backend (no internal streaming, but can stream by chunks)
+                prompt_ids = self._apply_chat_template(ref_codes, ref_text, chunk)
+                output_str = self._infer_torch(prompt_ids, temperature, top_k)
+                wav = self._decode(output_str)
+                if self.watermarker:
+                    wav = self.watermarker.apply_watermark(wav, sample_rate=self.sample_rate)
+                yield wav
 
     def _decode(self, codes: str):
         """Decode speech tokens to audio waveform."""
@@ -368,7 +587,7 @@ class VieNeuTTS:
 
         return ids
 
-    def _infer_torch(self, prompt_ids: list[int]) -> str:
+    def _infer_torch(self, prompt_ids: list[int], temperature: float = 1.0, top_k: int = 50) -> str:
         prompt_tensor = torch.tensor(prompt_ids).unsqueeze(0).to(self.backbone.device)
         speech_end_id = self.tokenizer.convert_tokens_to_ids("<|SPEECH_GENERATION_END|>")
         with torch.no_grad():
@@ -377,8 +596,8 @@ class VieNeuTTS:
                 max_length=self.max_context,
                 eos_token_id=speech_end_id,
                 do_sample=True,
-                temperature=1.0,
-                top_k=50,
+                temperature=temperature,
+                top_k=top_k,
                 use_cache=True,
                 min_new_tokens=50,
             )
@@ -388,7 +607,7 @@ class VieNeuTTS:
         )
         return output_str
 
-    def _infer_ggml(self, ref_codes: list[int], ref_text: str, input_text: str) -> str:
+    def _infer_ggml(self, ref_codes: list[int], ref_text: str, input_text: str, temperature: float = 1.0, top_k: int = 50) -> str:
         ref_text = phonemize_with_dict(ref_text)
         input_text = phonemize_with_dict(input_text)
 
@@ -400,14 +619,14 @@ class VieNeuTTS:
         output = self.backbone(
             prompt,
             max_tokens=self.max_context,
-            temperature=1.0,
-            top_k=50,
+            temperature=temperature,
+            top_k=top_k,
             stop=["<|SPEECH_GENERATION_END|>"],
         )
         output_str = output["choices"][0]["text"]
         return output_str
 
-    def _infer_stream_ggml(self, ref_codes: torch.Tensor, ref_text: str, input_text: str) -> Generator[np.ndarray, None, None]:
+    def _infer_stream_ggml(self, ref_codes: torch.Tensor, ref_text: str, input_text: str, temperature: float = 1.0, top_k: int = 50) -> Generator[np.ndarray, None, None]:
         ref_text = phonemize_with_dict(ref_text)
         input_text = phonemize_with_dict(input_text)
 
@@ -425,8 +644,8 @@ class VieNeuTTS:
         for item in self.backbone(
             prompt,
             max_tokens=self.max_context,
-            temperature=1.0,
-            top_k=50,
+            temperature=temperature,
+            top_k=top_k,
             stop=["<|SPEECH_GENERATION_END|>"],
             stream=True
         ):
@@ -510,14 +729,14 @@ class FastVieNeuTTS:
         self,
         backbone_repo="pnnbao-ump/VieNeu-TTS",
         backbone_device="cuda",
-        codec_repo="neuphonic/neucodec",
+        codec_repo="neuphonic/distill-neucodec",
         codec_device="cuda",
         memory_util=0.3,
         tp=1,
         enable_prefix_caching=True,
         quant_policy=0,
         enable_triton=True,
-        max_batch_size=8,
+        max_batch_size=2,
     ):
         """
         Initialize FastVieNeuTTS with LMDeploy backend and optimizations.
@@ -583,8 +802,9 @@ class FastVieNeuTTS:
             from lmdeploy import pipeline, TurbomindEngineConfig, GenerationConfig
         except ImportError as e:
             raise ImportError(
-                "Failed to import `lmdeploy`. "
-                "Xem hướng dẫn cài đặt lmdeploy để tối ưu hiệu suất GPU tại: https://github.com/pnnbao97/VieNeu-TTS"
+                "Failed to import `lmdeploy`. Bạn cần cài đặt phiên bản hỗ trợ GPU bằng lệnh: "
+                "pip install vieneu[gpu]. \n"
+                "Xem thêm hướng dẫn tại: https://github.com/pnnbao97/VieNeu-TTS"
             ) from e
         
         backend_config = TurbomindEngineConfig(
@@ -659,6 +879,20 @@ class FastVieNeuTTS:
         with torch.no_grad():
             ref_codes = self.codec.encode_code(audio_or_path=wav_tensor).squeeze(0).squeeze(0)
         return ref_codes
+    
+    def clone_voice(self, audio_path: str | Path, text: str):
+        """
+        Create a new custom voice from reference audio.
+        
+        Args:
+            audio_path: Path to the reference audio file
+            text: The exact transcript of the reference audio
+            
+        Returns:
+            dict: { 'codes': torch.Tensor, 'text': str }
+        """
+        ref_codes = self.encode_reference(audio_path)
+        return {"codes": ref_codes, "text": text}
     
     def get_cached_reference(self, voice_name: str, audio_path: str, ref_text: str = None):
         """
@@ -775,47 +1009,81 @@ class FastVieNeuTTS:
         
         return prompt
     
-    def infer(self, text: str, ref_codes: np.ndarray | torch.Tensor, ref_text: str) -> np.ndarray:
+    def infer(self, text: str, ref_codes: np.ndarray | torch.Tensor = None, ref_text: str = None, max_chars: int = 256, silence_p: float = 0.0, crossfade_p: float = 0.0, voice: dict = None, temperature: float = 1.0, top_k: int = 50) -> np.ndarray:
         """
-        Single inference.
+        Single inference (automatically splits long text and uses batching for speed).
         
         Args:
             text: Input text to synthesize
             ref_codes: Encoded reference audio codes
             ref_text: Reference text for reference audio
+            max_chars: Maximum characters per chunk for splitting.
+            voice: Optional dict with 'codes' and 'text'.
+            temperature: Sampling temperature.
+            top_k: Top-k sampling.
             
         Returns:
             Generated speech waveform as numpy array
         """
-        if isinstance(ref_codes, torch.Tensor):
-            ref_codes = ref_codes.cpu().numpy()
-        if isinstance(ref_codes, np.ndarray):
-            ref_codes = ref_codes.flatten().tolist()
+        if voice is not None:
+            ref_codes = voice.get('codes', ref_codes)
+            ref_text = voice.get('text', ref_text)
+            
+        if ref_codes is None or ref_text is None:
+             raise ValueError("Must provide either 'voice' dict or both 'ref_codes' and 'ref_text'.")
         
-        prompt = self._format_prompt(ref_codes, ref_text, text)
+        # Update generation config if needed
+        self.gen_config.temperature = temperature
+        self.gen_config.top_k = top_k
+
+        # Split text into chunks
+        chunks = split_text_into_chunks(text, max_chars=max_chars)
         
-        # Use LMDeploy pipeline for generation
-        responses = self.backbone([prompt], gen_config=self.gen_config, do_preprocess=False)
-        output_str = responses[0].text
-        
-        # Decode to audio
-        wav = self._decode(output_str)
-        
+        if not chunks:
+            return np.array([], dtype=np.float32)
+            
+        if len(chunks) == 1:
+            # Single chunk optimization
+            if isinstance(ref_codes, torch.Tensor):
+                ref_codes = ref_codes.cpu().numpy()
+            if isinstance(ref_codes, np.ndarray):
+                ref_codes = ref_codes.flatten().tolist()
+            
+            prompt = self._format_prompt(ref_codes, ref_text, chunks[0])
+            responses = self.backbone([prompt], gen_config=self.gen_config, do_preprocess=False)
+            wav = self._decode(responses[0].text)
+        else:
+            # Multiple chunks: use batching for parallel generation
+            all_wavs = self.infer_batch(chunks, ref_codes, ref_text, voice=voice, temperature=temperature, top_k=top_k)
+            wav = _join_audio_chunks(all_wavs, self.sample_rate, silence_p, crossfade_p)
+
         # Apply watermark if available
         if self.watermarker:
             wav = self.watermarker.apply_watermark(wav, sample_rate=self.sample_rate)
             
         return wav
     
-    def infer_batch(self, texts: list[str], ref_codes: np.ndarray | torch.Tensor, ref_text: str, max_batch_size: int = None) -> list[np.ndarray]:
+    def infer_batch(self, texts: list[str], ref_codes: np.ndarray | torch.Tensor = None, ref_text: str = None, max_batch_size: int = None, voice: dict = None, temperature: float = 1.0, top_k: int = 50) -> list[np.ndarray]:
         """
         Batch inference for multiple texts.
         """
         if max_batch_size is None:
             max_batch_size = self.max_batch_size
+
+        if voice is not None:
+            ref_codes = voice.get('codes', ref_codes)
+            ref_text = voice.get('text', ref_text)
+            
+        if ref_codes is None or ref_text is None:
+             raise ValueError("Must provide either 'voice' dict or both 'ref_codes' and 'ref_text'.")
             
         if not isinstance(texts, list):
             texts = [texts]
+        
+        # Update generation config
+        self.gen_config.temperature = temperature
+        self.gen_config.top_k = top_k
+        self.gen_config.repetition_penalty = 1.0 # default
         
         if isinstance(ref_codes, torch.Tensor):
             ref_codes = ref_codes.cpu().numpy()
@@ -847,18 +1115,41 @@ class FastVieNeuTTS:
         
         return all_wavs
     
-    def infer_stream(self, text: str, ref_codes: np.ndarray | torch.Tensor, ref_text: str) -> Generator[np.ndarray, None, None]:
+    def infer_stream(self, text: str, ref_codes: np.ndarray | torch.Tensor = None, ref_text: str = None, max_chars: int = 256, voice: dict = None, temperature: float = 1.0, top_k: int = 50) -> Generator[np.ndarray, None, None]:
         """
-        Streaming inference with low latency.
+        Streaming inference with low latency (supports long text by splitting into chunks).
         
         Args:
             text: Input text to synthesize
             ref_codes: Encoded reference audio codes
             ref_text: Reference text for reference audio
+            max_chars: Maximum characters per chunk for splitting.
+            voice: Optional dict with 'codes' and 'text'.
+            temperature: Sampling temperature.
+            top_k: Top-k sampling.
             
         Yields:
             Audio chunks as numpy arrays
         """
+        if voice is not None:
+            ref_codes = voice.get('codes', ref_codes)
+            ref_text = voice.get('text', ref_text)
+            
+        if ref_codes is None or ref_text is None:
+             raise ValueError("Must provide either 'voice' dict or both 'ref_codes' and 'ref_text'.")
+        
+        # Update generation config
+        self.gen_config.temperature = temperature
+        self.gen_config.top_k = top_k
+        self.gen_config.repetition_penalty = 1.0
+
+        chunks = split_text_into_chunks(text, max_chars=max_chars)
+        
+        for chunk in chunks:
+            yield from self._infer_stream_single(chunk, ref_codes, ref_text)
+
+    def _infer_stream_single(self, text: str, ref_codes: np.ndarray | torch.Tensor, ref_text: str) -> Generator[np.ndarray, None, None]:
+        """Internal method for streaming a single short text chunk"""
         if isinstance(ref_codes, torch.Tensor):
             ref_codes = ref_codes.cpu().numpy()
         if isinstance(ref_codes, np.ndarray):
@@ -958,3 +1249,163 @@ class FastVieNeuTTS:
             'kv_quant': self.gen_config.__dict__.get('quant_policy', 0),
             'prefix_caching': True,  # Always enabled in our config
         }
+
+
+# ============================================================================
+# RemoteVieNeuTTS - Instant-load client for remote servers
+# ============================================================================
+
+class RemoteVieNeuTTS(VieNeuTTS):
+    """
+    Client for VieNeu-TTS running on a remote LMDeploy server.
+    Extremely fast to initialize as it only loads the local codec.
+    
+    Use this for:
+    - Production/SaaS environments
+    - Instant SDK loading in multi-process applications
+    - Connecting to a centralized high-performance GPU server
+    """
+    
+    def __init__(
+        self, 
+        api_base="http://localhost:23333/v1", 
+        model_name="pnnbao-ump/VieNeu-TTS",
+        codec_repo="neuphonic/distill-neucodec", 
+        codec_device="cpu"
+    ):
+        """
+        Initialize Remote Client.
+        
+        Args:
+            api_base: Base URL of LMDeploy api_server
+            model_name: Name of the model as registered on the server
+            codec_repo: Local codec for decoding
+            codec_device: Device for local codec (usually 'cpu' is enough)
+        """
+        self.api_base = api_base.rstrip('/')
+        self.model_name = model_name
+        
+        # Initialize VieNeuTTS without backbone
+        super().__init__(
+            backbone_repo=None,
+            codec_repo=codec_repo,
+            codec_device=codec_device
+        )
+        
+        print(f"📡 RemoteVieNeuTTS ready! Using backend: {self.api_base}")
+
+    def _load_backbone(self, backbone_repo, backbone_device):
+        pass # Explicitly skip
+
+    def _format_prompt(self, ref_codes: list[int], ref_text: str, input_text: str) -> str:
+        """Format prompt for remote LMDeploy server"""
+        ref_text_phones = phonemize_with_dict(ref_text)
+        input_text_phones = phonemize_with_dict(input_text)
+        
+        codes_str = "".join([f"<|speech_{idx}|>" for idx in ref_codes])
+        
+        prompt = (
+            f"user: Convert the text to speech:<|TEXT_PROMPT_START|>{ref_text_phones} {input_text_phones}"
+            f"<|TEXT_PROMPT_END|>\nassistant:<|SPEECH_GENERATION_START|>{codes_str}"
+        )
+        return prompt
+
+    def infer(self, text: str, ref_codes: np.ndarray | torch.Tensor = None, ref_text: str = None, max_chars: int = 256, silence_p: float = 0.0, crossfade_p: float = 0.0, voice: dict = None, temperature: float = 1.0, top_k: int = 50) -> np.ndarray:
+        """
+        Remote inference (automatically splits long text).
+        
+        Args:
+            text: Input text to synthesize
+            ref_codes: Encoded reference audio codes
+            ref_text: Reference text for reference audio
+            max_chars: Maximum characters per chunk for splitting.
+            silence_p (float): Seconds of silence to pad between chunks.
+            crossfade_p (float): Seconds of crossfade between chunks (ignored if silence_p > 0).
+            voice: Optional dict with 'codes' and 'text'.
+            temperature: Sampling temperature.
+            top_k: Top-k sampling.
+            
+        Returns:
+            Generated speech waveform as numpy array
+        """
+        if voice is not None:
+            ref_codes = voice.get('codes', ref_codes)
+            ref_text = voice.get('text', ref_text)
+            
+        if ref_codes is None or ref_text is None:
+             raise ValueError("Must provide either 'voice' dict or both 'ref_codes' and 'ref_text'.")
+
+        chunks = split_text_into_chunks(text, max_chars=max_chars)
+        
+        if not chunks:
+            return np.array([], dtype=np.float32)
+
+        all_wavs = []
+        for chunk in chunks:
+            if isinstance(ref_codes, torch.Tensor):
+                ref_codes_list = ref_codes.cpu().numpy().flatten().tolist()
+            elif isinstance(ref_codes, np.ndarray):
+                ref_codes_list = ref_codes.flatten().tolist()
+            else:
+                ref_codes_list = ref_codes
+
+            prompt = self._format_prompt(ref_codes_list, ref_text, chunk)
+            
+            # Use chat/completions endpoint as it is standard in lmdeploy serve api_server
+            # even if we are sending a pre-formatted prompt string.
+            # We wrap the prompt in a user message. LMDeploy might re-template it, but
+            # usually if the model doesn't have a strict template or we rely on the model's
+            # ability to follow instructions within the user message, this works for now.
+            # Ideally we should construct messages properly without pre-formatting if possible,
+            # but _format_prompt does heavy lifting (phonemization etc).
+            
+            payload = {
+                "model": self.model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 2048,
+                "temperature": temperature,
+                "top_k": top_k,
+                "stop": ["<|SPEECH_GENERATION_END|>"],
+                "stream": False
+            }
+            
+            try:
+                # Use chat/completions
+                response = requests.post(f"{self.api_base}/chat/completions", json=payload, timeout=60)
+                response.raise_for_status()
+                
+                # Parse chat completion response
+                output_str = response.json()["choices"][0]["message"]["content"]
+                
+                # Local decode is extremely fast
+                wav = self._decode(output_str)
+                all_wavs.append(wav)
+            except Exception as e:
+                print(f"Error during remote inference: {e}")
+                continue
+
+        # Join all chunks with optional padding/crossfade
+        final_wav = _join_audio_chunks(all_wavs, self.sample_rate, silence_p, crossfade_p)
+
+        if self.watermarker:
+            final_wav = self.watermarker.apply_watermark(final_wav, sample_rate=self.sample_rate)
+            
+        return final_wav
+
+
+def Vieneu(mode="standard", **kwargs):
+    """
+    Factory function for VieNeu-TTS.
+    
+    Args:
+        mode: 'standard' (CPU/GPU-GGUF), 'remote' (API)
+        **kwargs: Arguments for chosen class
+        
+    Returns:
+        VieNeuTTS | RemoteVieNeuTTS instance
+    """
+    match mode:
+        case "remote" | "api":
+            return RemoteVieNeuTTS(**kwargs)
+        case _:
+            return VieNeuTTS(**kwargs)

@@ -65,6 +65,7 @@ class VietnameseTTSNormalizer:
         text = self._normalize_time(text)
         text = self._normalize_date(text)
         text = self._normalize_phone(text)
+        text = self._normalize_versions(text)
         text = self._normalize_numbers(text)
         text = self._number_to_words(text)
         text = self._normalize_special_chars(text)
@@ -260,6 +261,20 @@ class VietnameseTTSNormalizer:
         text = re.sub(r'\b0\d[\d\s\-\.]{8,}', phone_to_text, text)
         return text
     
+    def _normalize_versions(self, text):
+        """Convert version numbers like 1.0.4 to words."""
+        def version_to_text(match):
+            parts = match.group(0).split('.')
+            # Convert each part to words if it's a number, or keep if not
+            # But for versions, usually we just want the digits or numbers
+            # The user requested "1 chấm 0 chấm 4"
+            return ' chấm '.join(parts)
+        
+        # Match sequences of numbers separated by dots (at least 2 dots to be sure it's a version)
+        # e.g., 1.0.4, 17.21.1, 192.168.1.1
+        text = re.sub(r'\b\d+(?:\.\d+){1,}\b', version_to_text, text)
+        return text
+    
     def _normalize_numbers(self, text):
         text = re.sub(r'(\d+(?:[,.]\d+)?)%', lambda m: f'{m.group(1)} phần trăm', text)
         text = re.sub(r'(\d{1,3})(?:\.(\d{3}))+', lambda m: m.group(0).replace('.', ''), text)
@@ -414,7 +429,8 @@ if __name__ == "__main__":
     normalizer = VietnameseTTSNormalizer()
     
     test_texts = [
-        "Chỉ cần thay đổi một dấu thanh, ý nghĩa của từ đã hoàn toàn khác biệt. Ví dụ như \"ma\", \"má\", \"mà\", \"mả\", \"mã\", \"mạ\" – đây chính là \"bài toán khó\" mà các kỹ sư công nghệ phải giải quyết để tạo ra một giọng đọc tự nhiên như người bản xứ."
+        "Chỉ cần thay đổi một dấu thanh, ý nghĩa của từ đã hoàn toàn khác biệt. Ví dụ như \"ma\", \"má\", \"mà\", \"mả\", \"mã\", \"mạ\" – đây chính là \"bài toán khó\" mà các kỹ sư công nghệ phải giải quyết để tạo ra một giọng đọc tự nhiên như người bản xứ.",
+        "Phiên bản hiện tại là 1.0.4 và địa chỉ IP của tôi là 192.168.1.1"
     ]
     
     print("=" * 80)

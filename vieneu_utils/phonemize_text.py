@@ -5,7 +5,7 @@ import glob
 import re
 from phonemizer import phonemize
 from phonemizer.backend.espeak.espeak import EspeakWrapper
-from utils.normalize_text import VietnameseTTSNormalizer
+from vieneu_utils.normalize_text import VietnameseTTSNormalizer
 
 # Configuration
 PHONEME_DICT_PATH = os.getenv(
@@ -35,10 +35,8 @@ def setup_espeak_library():
     elif system == "Darwin":
         _setup_macos_espeak()
     else:
-        raise OSError(
-            f"Unsupported OS: {system}. "
-            "Only Windows, Linux, and macOS are supported."
-        )
+        print(f"Warning: Unsupported OS: {system}")
+        return
 
 def _setup_windows_espeak():
     """Setup eSpeak for Windows."""
@@ -46,10 +44,7 @@ def _setup_windows_espeak():
     if os.path.exists(default_path):
         EspeakWrapper.set_library(default_path)
     else:
-        raise FileNotFoundError(
-            f"eSpeak library not found at {default_path}. "
-            "Please install eSpeak NG from: https://github.com/espeak-ng/espeak-ng/releases"
-        )
+        print("⚠️ eSpeak-NG is not installed. The system will use the built-in dictionary, but it is recommended to install eSpeak-NG for maximum performance and accuracy.")
 
 def _setup_linux_espeak():
     """Setup eSpeak for Linux."""
@@ -67,13 +62,7 @@ def _setup_linux_espeak():
             EspeakWrapper.set_library(sorted(matches, key=len)[0])
             return
     
-    raise RuntimeError(
-        "eSpeak NG library not found. Install with:\n"
-        "  Ubuntu/Debian: sudo apt-get install espeak-ng\n"
-        "  Fedora: sudo dnf install espeak-ng\n"
-        "  Arch: sudo pacman -S espeak-ng\n"
-        "See: https://github.com/pnnbao97/VieNeu-TTS/issues/5"
-    )
+    print("⚠️ eSpeak-NG is not installed on Linux. The system will use the built-in dictionary, but it is recommended to install eSpeak-NG (sudo apt install espeak-ng) for maximum performance.")
 
 def _setup_macos_espeak():
     """Setup eSpeak for macOS."""
@@ -91,20 +80,19 @@ def _setup_macos_espeak():
             EspeakWrapper.set_library(path)
             return
     
-    raise FileNotFoundError(
-        "eSpeak library not found. Install with:\n"
-        "  brew install espeak-ng\n"
-        "Or set: export PHONEMIZER_ESPEAK_LIBRARY=/path/to/libespeak-ng.dylib"
-    )
+    print("⚠️ eSpeak-NG is not installed on macOS. The system will use the built-in dictionary, but it is recommended to install eSpeak-NG (brew install espeak-ng) for maximum performance.")
 
 # Initialize
+setup_espeak_library()
+
 try:
-    setup_espeak_library()
     phoneme_dict = load_phoneme_dict()
     normalizer = VietnameseTTSNormalizer()
 except Exception as e:
     print(f"Initialization error: {e}")
-    raise
+    # We still need normalizer to function
+    normalizer = VietnameseTTSNormalizer()
+    phoneme_dict = {}
 
 def phonemize_text(text: str) -> str:
     """

@@ -28,9 +28,9 @@ WORKDIR /workspace
 FROM base AS dev
 # Trong môi trường dev, chúng ta sẽ mount code từ host
 # Chỉ copy định nghĩa dependencies để cài đặt
-COPY pyproject.toml.cpu ./pyproject.toml
-COPY uv.lock.cpu ./uv.lock
-RUN uv sync
+COPY pyproject.toml ./pyproject.toml
+COPY uv.lock ./uv.lock
+RUN uv sync --no-default-groups
 # Command mặc định cho dev (có thể override)
 CMD ["python", "gradio_app.py"]
 
@@ -40,11 +40,11 @@ FROM base AS prod
 COPY . .
 # Copy CPU-specific config
 RUN rm -f pyproject.toml
-COPY pyproject.toml.cpu pyproject.toml
+COPY pyproject.toml pyproject.toml
 RUN rm -f uv.lock
-COPY uv.lock.cpu uv.lock
+COPY uv.lock uv.lock
 # Cài đặt dependencies (không bao gồm dev deps)
-RUN uv sync --no-dev
+RUN uv sync --no-dev --no-default-groups
 
 # Expose port
 EXPOSE 7860

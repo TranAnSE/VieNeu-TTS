@@ -3,7 +3,7 @@ print("⏳ Đang khởi động... Vui lòng chờ...")
 import soundfile as sf
 import tempfile
 import torch
-from vieneu_tts import VieNeuTTS, FastVieNeuTTS
+from vieneu import VieNeuTTS, FastVieNeuTTS
 import os
 import sys
 import time
@@ -12,7 +12,7 @@ from typing import Generator, Optional, Tuple
 import queue
 import threading
 import yaml
-from utils.core_utils import split_text_into_chunks, env_bool
+from vieneu_utils.core_utils import split_text_into_chunks, env_bool
 from functools import lru_cache
 import gc
 

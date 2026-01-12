@@ -8,22 +8,27 @@ required-environments = [
 override-dependencies = [
     "nvidia-nccl-cu12; sys_platform == 'linux'",
 ]
+default-groups = ["gpu"]
 
 [[tool.uv.index]]
 name = "pytorch"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
+
 [[tool.uv.index]]
 name = "pypi"
 url = "https://pypi.org/simple"
 
 [project]
-name = "VieNeu-TTS"
-version = "0.1.0"
+name = "vieneu"
+version = "1.1.4"
 description = "Advanced on-device Vietnamese TTS with instant voice cloning"
 readme = "README.md"
-requires-python = "==3.12.*"
+authors = [
+    { name = "Phạm Nguyễn Ngọc Bảo", email = "pnnbao@gmail.com" }
+]
+requires-python = ">=3.10"
 dependencies = [
     "phonemizer>=3.3.0",
     "neucodec>=0.0.4",
@@ -31,28 +36,50 @@ dependencies = [
     "gradio>=5.49.1",
     "onnxruntime>=1.23.2",
     "datasets>=3.2.0",
+    "torch",
+    "torchaudio",
+    "perth>=0.2.0",
+    "llama-cpp-python==0.3.16",
+    "requests",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/pnnbao97/VieNeu-TTS"
+"Bug Tracker" = "https://github.com/pnnbao97/VieNeu-TTS/issues"
+"Documentation" = "https://github.com/pnnbao97/VieNeu-TTS/blob/main/README.md"
+
+[project.optional-dependencies]
+gpu = [
     "lmdeploy; sys_platform != 'darwin'",
     "triton-windows; sys_platform == 'win32'",
     "triton; sys_platform == 'linux'",
     "transformers; sys_platform == 'darwin'",
     "accelerate; sys_platform == 'darwin'",
-    "torch",
-    "torchvision",
-    "torchaudio",
-    "perth>=0.2.0",
-    "llama-cpp-python==0.3.16",
 ]
+
+[dependency-groups]
+gpu = [
+    "lmdeploy; sys_platform != 'darwin'",
+    "triton-windows; sys_platform == 'win32'",
+    "triton; sys_platform == 'linux'",
+    "transformers; sys_platform == 'darwin'",
+    "accelerate; sys_platform == 'darwin'",
+]
+
+[tool.setuptools]
+packages = ["vieneu", "vieneu_utils"]
+
+[tool.setuptools.package-data]
+vieneu_utils = ["*.json"]
+vieneu = ["assets/samples/*"]
 
 [tool.uv.sources]
 
 torch = [
     { index = "pytorch", marker = "sys_platform != 'darwin'" },
-    { index = "pypi", marker = "sys_platform == 'darwin'" } 
-]
-torchvision = [
-    { index = "pytorch", marker = "sys_platform != 'darwin'" },
     { index = "pypi", marker = "sys_platform == 'darwin'" }
 ]
+
 torchaudio = [
     { index = "pytorch", marker = "sys_platform != 'darwin'" },
     { index = "pypi", marker = "sys_platform == 'darwin'" }
@@ -65,6 +92,10 @@ lmdeploy = [
 ]
 
 llama-cpp-python = [
+    { url = "https://github.com/pnnbao97/VieNeu-TTS/releases/download/wheels-v0.3.16/llama_cpp_python-0.3.16-cp310-cp310-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.10'" },
+    { url = "https://github.com/pnnbao97/VieNeu-TTS/releases/download/wheels-v0.3.16/llama_cpp_python-0.3.16-cp311-cp311-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.11'" },
     { url = "https://github.com/pnnbao97/VieNeu-TTS/releases/download/wheels-v0.3.16/llama_cpp_python-0.3.16-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.12'" },
+    { url = "https://github.com/pnnbao97/VieNeu-TTS/releases/download/wheels-v0.3.16/llama_cpp_python-0.3.16-cp313-cp313-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.13'" },
+    { url = "https://github.com/pnnbao97/VieNeu-TTS/releases/download/wheels-v0.3.16/llama_cpp_python-0.3.16-cp314-cp314-win_amd64.whl", marker = "sys_platform == 'win32' and python_version == '3.14'" },
     { index = "pypi", marker = "sys_platform != 'win32'" }
 ]

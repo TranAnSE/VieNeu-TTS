@@ -5,11 +5,10 @@ SHELL := /bin/bash
 help:
 	@echo "Targets:"
 	@echo "  make check       - check toolchain (python>=3.12, uv, espeak, docker, gpu, .env...)"
-	@echo "  make setup-gpu   - setup GPU environment (uv sync with default config)"
-	@echo "  make setup-cpu   - setup CPU environment (sync CPU deps, temporary pyproject.toml swap with backup/restore)"
-	@echo "  make demo        - run Gradio UI"
-	@echo "  make docker-cpu  - run docker compose --profile cpu (auto-create .env if needed)"
-	@echo "  make docker-gpu  - run docker compose --profile gpu (auto-create .env if needed)"
+	@echo "  make setup      - setup environment (uv sync)"
+	@echo "  make demo       - run Gradio UI"
+	@echo "  make docker-cpu - run docker compose --profile cpu (auto-create .env if needed)"
+	@echo "  make docker-gpu - run docker compose --profile gpu (auto-create .env if needed)"
 	@echo "  make clean       - clean artifacts (.venv, cache, ...)"
 	@echo "  make uv          - install uv (standalone)"
 	@echo "  make espeak      - install eSpeak NG (standalone)"
@@ -106,72 +105,12 @@ espeak:
 	    echo "Unknown OS/Manager. Please install espeak-ng manually."; \
 	fi
 
-setup-gpu: check-install-prereqs check-gpu-prereqs
+setup: check-install-prereqs
 	uv sync
 
-check-gpu-prereqs:
-	@set -euo pipefail; \
-	C_GREEN='\033[0;32m'; \
-	C_YELLOW='\033[1;33m'; \
-	C_RED='\033[0;31m'; \
-	C_RESET='\033[0m'; \
-	echo ">> Checking GPU prerequisites..."; \
-	OS_TYPE="unknown"; \
-	if [[ "$$OSTYPE" == "msys" || "$$OSTYPE" == "cygwin" || "$$OSTYPE" == "win32" ]]; then OS_TYPE="windows"; fi; \
-	if [[ "$$OSTYPE" == "linux-gnu"* ]]; then OS_TYPE="linux"; fi; \
-	\
-	# --- NVIDIA Driver Check --- \
-	if ! command -v nvidia-smi >/dev/null 2>&1; then \
-	  echo -e "$${C_YELLOW}[WARNING] NVIDIA Driver (nvidia-smi) not found.$${C_RESET}"; \
-	  read -p "Install/Download NVIDIA Driver? [y/N] " ans; \
-	  if [[ "$$ans" =~ ^[Yy]$$ ]]; then \
-	    if [ "$$OS_TYPE" == "windows" ]; then \
-	       echo "Opening download page..."; \
-	       start https://www.nvidia.com/Download/index.aspx || echo "Go to: https://www.nvidia.com/Download/index.aspx"; \
-	    else \
-	       echo "For Linux, please install 'nvidia-driver-XXX' via your package manager."; \
-	    fi; \
-	  fi; \
-	else \
-	  echo -e "$${C_GREEN}[OK]$${C_RESET} NVIDIA Driver found."; \
-	fi; \
-	\
-	# --- CUDA Toolkit Check (nvcc) --- \
-	if ! command -v nvcc >/dev/null 2>&1; then \
-	  echo -e "$${C_YELLOW}[WARNING] CUDA Toolkit (nvcc) not found.$${C_RESET}"; \
-	  echo -e "      (Required if compiling custom CUDA extensions)"; \
-	  read -p "Install/Download CUDA Toolkit? [y/N] " ans; \
-	  if [[ "$$ans" =~ ^[Yy]$$ ]]; then \
-	    if [ "$$OS_TYPE" == "windows" ]; then \
-	       echo "Opening download page..."; \
-	       start https://developer.nvidia.com/cuda-downloads || echo "Go to: https://developer.nvidia.com/cuda-downloads"; \
-	    else \
-	       echo "For Linux, please install 'nvidia-cuda-toolkit' (or similar)."; \
-	    fi; \
-	  fi; \
-	else \
-	  echo -e "$${C_GREEN}[OK]$${C_RESET} CUDA Toolkit (nvcc) found."; \
-	fi
-
-# CPU: uv does not support specifying pyproject.toml.cpu directly -> temporary swap with backup/restore
+setup-gpu: setup
 setup-cpu: check-install-prereqs
-	@set -euo pipefail; \
-	echo ">> CPU setup (temporary swap pyproject.toml)"; \
-	test -f pyproject.toml.cpu || { echo "ERROR: missing pyproject.toml.cpu"; exit 1; }; \
-	if [ -f pyproject.toml ]; then \
-	  cp -f pyproject.toml pyproject.toml.bak.gpu; \
-	  echo "   - backed up pyproject.toml -> pyproject.toml.bak.gpu"; \
-	fi; \
-	cp -f pyproject.toml.cpu pyproject.toml; \
-	trap ' \
-	  if [ -f pyproject.toml.bak.gpu ]; then \
-	    mv -f pyproject.toml.bak.gpu pyproject.toml; \
-	    echo "   - restored pyproject.toml"; \
-	  else \
-	    echo "   - no backup found; keeping pyproject.toml as-is"; \
-	  fi \
-	' EXIT; \
-	uv sync
+	uv sync --no-default-groups
 
 demo:
 	uv run gradio_app.py
@@ -279,7 +218,7 @@ check:
 	fi; \
 	echo; \
 	echo -e "$${C_CYAN}== Repo files ==$${C_RESET}"; \
-	ls -1 pyproject.toml pyproject.toml.cpu uv.lock 2>/dev/null && echo -e "$${C_GREEN}[OK]$${C_RESET} All required files found" || echo -e "$${C_YELLOW}[WARNING]$${C_RESET} Some files missing"
+	ls -1 pyproject.toml uv.lock 2>/dev/null && echo -e "$${C_GREEN}[OK]$${C_RESET} All required files found" || echo -e "$${C_YELLOW}[WARNING]$${C_RESET} Some files missing"
 
 clean:
 	rm -rf .venv __pycache__ .pytest_cache

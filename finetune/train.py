@@ -16,7 +16,7 @@ from peft import get_peft_model
 # Thêm thư mục gốc vào path để import utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.phonemize_text import phonemize_with_dict
+from vieneu_utils.phonemize_text import phonemize_with_dict
 from finetune.configs.lora_config import lora_config, training_config, get_training_args
 
 def preprocess_sample(sample, tokenizer, max_len=2048):
