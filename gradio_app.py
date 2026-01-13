@@ -12,7 +12,7 @@ from typing import Generator, Optional, Tuple
 import queue
 import threading
 import yaml
-from vieneu_utils.core_utils import split_text_into_chunks, env_bool
+from vieneu_utils.core_utils import split_text_into_chunks, join_audio_chunks, env_bool
 from functools import lru_cache
 import gc
 
@@ -378,7 +378,8 @@ def load_reference_info(voice_choice: str) -> Tuple[Optional[str], str]:
 
 def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: str, 
                      mode_tab: str, generation_mode: str, use_batch: bool, max_batch_size_run: int,
-                     lora_repo_id: str, lora_hf_token: str, lora_audio, lora_text: str):
+                     lora_repo_id: str, lora_hf_token: str, lora_audio, lora_text: str,
+                     temperature: float = 1.0, crossfade_p: float = 0.05, max_chars_chunk: int = 256):
     """Synthesis with optimization support, max batch size control, and LoRA adapter support"""
     global tts, current_backbone, current_codec, model_loaded, using_lmdeploy
     
@@ -512,61 +513,68 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
         yield None, f"❌ Lỗi xử lý reference: {e}"
         return
     
-    text_chunks = split_text_into_chunks(raw_text, max_chars=MAX_CHARS_PER_CHUNK)
-    total_chunks = len(text_chunks)
-    
     # === STANDARD MODE ===
     if generation_mode == "Standard (Một lần)":
         backend_name = "LMDeploy" if using_lmdeploy else "Standard"
-        batch_info = " (Batch Mode)" if use_batch and using_lmdeploy and total_chunks > 1 else ""
         
-        # Show batch size info
-        batch_size_info = ""
-        if use_batch and using_lmdeploy and hasattr(tts, 'max_batch_size'):
-            batch_size_info = f" [Max batch: {tts.max_batch_size}]"
+        # Split text here so we can show progress
+        text_chunks = split_text_into_chunks(raw_text, max_chars=max_chars_chunk)
+        total_chunks = len(text_chunks)
         
-        yield None, f"🚀 Bắt đầu tổng hợp {backend_name}{batch_info}{batch_size_info} ({total_chunks} đoạn)..."
+        yield None, f"🚀 Bắt đầu tổng hợp {backend_name} ({total_chunks} đoạn)..."
         
-        all_audio_segments = []
         sr = 24000
-        silence_pad = np.zeros(int(sr * 0.15), dtype=np.float32)
-        
         start_time = time.time()
+        all_wavs = []
         
         try:
-            # Use batch processing if enabled and using LMDeploy
-            if use_batch and using_lmdeploy and hasattr(tts, 'infer_batch') and total_chunks > 1:
-                # Show how many mini-batches will be processed
+            # Case 1: LMDeploy with Batching (Shows batch progress)
+            if using_lmdeploy and use_batch and hasattr(tts, 'infer_batch') and total_chunks > 1:
+                # Calculate how many mini-batches
                 num_batches = (total_chunks + max_batch_size_run - 1) // max_batch_size_run
+                yield None, f"⚡ Xử lý {total_chunks} đoạn theo {num_batches} batches (Max size: {max_batch_size_run})..."
                 
-                yield None, f"⚡ Xử lý {num_batches} mini-batch(es) (max {max_batch_size_run} đoạn/batch)..."
-                
-                chunk_wavs = tts.infer_batch(text_chunks, ref_codes, ref_text_raw, max_batch_size=max_batch_size_run)
-                
-                for i, chunk_wav in enumerate(chunk_wavs):
-                    if chunk_wav is not None and len(chunk_wav) > 0:
-                        all_audio_segments.append(chunk_wav)
-                        if i < total_chunks - 1:
-                            all_audio_segments.append(silence_pad)
+                # We reuse infer_batch directly for speed but it returns everything at once
+                all_wavs = tts.infer_batch(
+                    text_chunks, 
+                    ref_codes, 
+                    ref_text_raw, 
+                    max_batch_size=max_batch_size_run,
+                    temperature=temperature
+                )
+            
+            # Case 2: Sequential (Shows segment-by-segment progress)
             else:
-                # Sequential processing
                 for i, chunk in enumerate(text_chunks):
                     yield None, f"⏳ Đang xử lý đoạn {i+1}/{total_chunks}..."
                     
-                    chunk_wav = tts.infer(chunk, ref_codes, ref_text_raw)
+                    wav = tts.infer(
+                        chunk, 
+                        ref_codes, 
+                        ref_text_raw,
+                        temperature=temperature
+                    )
                     
-                    if chunk_wav is not None and len(chunk_wav) > 0:
-                        all_audio_segments.append(chunk_wav)
-                        if i < total_chunks - 1:
-                            all_audio_segments.append(silence_pad)
+                    if wav is not None and len(wav) > 0:
+                        all_wavs.append(wav)
             
-            if not all_audio_segments:
+            if not all_wavs:
                 yield None, "❌ Không sinh được audio nào."
                 return
             
-            yield None, "💾 Đang ghép file và lưu..."
+            yield None, "💾 Đang ghép nối và áp dụng hiệu ứng..."
             
-            final_wav = np.concatenate(all_audio_segments)
+            # Use public join_audio_chunks from core for consistent quality
+            final_wav = join_audio_chunks(
+                all_wavs, 
+                sr, 
+                crossfade_p=crossfade_p
+            )
+            
+            # Apply watermark manually here since we bypassed tts.infer(whole_text)
+            if hasattr(tts, 'watermarker') and tts.watermarker:
+                final_wav = tts.watermarker.apply_watermark(final_wav, sample_rate=sr)
+            
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
                 sf.write(tmp.name, final_wav, sr)
                 output_path = tmp.name
@@ -574,25 +582,30 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
             process_time = time.time() - start_time
             backend_info = f" (Backend: {'LMDeploy 🚀' if using_lmdeploy else 'Standard 📦'})"
             speed_info = f", Tốc độ: {len(final_wav)/sr/process_time:.2f}x realtime" if process_time > 0 else ""
-            
-            # LoRA info
             lora_info = f" [LoRA: {lora_repo_id}]" if lora_loaded else ""
             
             yield output_path, f"✅ Hoàn tất! (Thời gian: {process_time:.2f}s{speed_info}){backend_info}{lora_info}"
             
-            # Cleanup memory
             if using_lmdeploy and hasattr(tts, 'cleanup_memory'):
                 tts.cleanup_memory()
-            
             cleanup_gpu_memory()
             
         except torch.cuda.OutOfMemoryError as e:
             cleanup_gpu_memory()
+            
+            # Build helpful suggestions based on current settings
+            suggestions = []
+            
+            if using_lmdeploy and use_batch:
+                suggestions.append(f"• Giảm Max Batch Size (hiện tại: {max_batch_size_run})")
+                suggestions.append("• Bỏ tick 'Batch Processing'")
+            
+            suggestions.append("• Restart và chọn model nhỏ hơn (0.3B)")
+            
             yield None, (
-                f"❌ GPU hết VRAM! Hãy thử:\n"
-                f"• Giảm Max Batch Size (hiện tại: {tts.max_batch_size if hasattr(tts, 'max_batch_size') else 'N/A'})\n"
-                f"• Giảm độ dài văn bản\n\n"
-                f"Chi tiết: {str(e)}"
+                f"❌ GPU hết VRAM! Hãy thử:\n" +
+                "\n".join(suggestions) +
+                f"\n\nChi tiết: {str(e)}"
             )
             return
             
@@ -606,9 +619,12 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
     # === STREAMING MODE ===
     else:
         sr = 24000
-        crossfade_samples = int(sr * 0.03)
+        crossfade_samples = int(sr * crossfade_p)
         audio_queue = queue.Queue(maxsize=100)
         PRE_BUFFER_SIZE = 3
+        
+        # Split text into chunks for streaming
+        text_chunks = split_text_into_chunks(raw_text, max_chars=max_chars_chunk)
         
         end_event = threading.Event()
         error_event = threading.Event()
@@ -620,7 +636,7 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                 previous_tail = None
                 
                 for i, chunk_text in enumerate(text_chunks):
-                    stream_gen = tts.infer_stream(chunk_text, ref_codes, ref_text_raw)
+                    stream_gen = tts.infer_stream(chunk_text, ref_codes, ref_text_raw, temperature=temperature)
                     
                     for part_idx, audio_part in enumerate(stream_gen):
                         if audio_part is None or len(audio_part) == 0:
@@ -873,6 +889,10 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS") as demo:
             <strong>Tác giả:</strong>
             <a href="https://www.facebook.com/bao.phamnguyenngoc.5" target="_blank" class="model-card-link">Phạm Nguyễn Ngọc Bảo</a>
         </div>
+        <div class="model-card-item">
+            <strong>Discord:</strong>
+            <a href="https://discord.gg/yJt8kzjzWZ" target="_blank" class="model-card-link">Tham gia cộng đồng</a>
+        </div>
     </div>
 </div>
         """)
@@ -1033,6 +1053,35 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS") as demo:
                         info="Số lượng đoạn văn bản xử lý cùng lúc. Giá trị cao = nhanh hơn nhưng tốn VRAM hơn. Giảm xuống nếu gặp lỗi Out of Memory."
                     )
                 
+                # Advanced settings
+                with gr.Accordion("⚙️ Cài đặt nâng cao", open=False):
+                    with gr.Row():
+                        temperature_slider = gr.Slider(
+                            minimum=0.4,
+                            maximum=1.4,
+                            value=1.0,
+                            step=0.05,
+                            label="🌡️ Temperature",
+                            info="Độ sáng tạo. Thấp = ổn định, Cao = đa dạng nhưng có thể kém tự nhiên."
+                        )
+                        crossfade_slider = gr.Slider(
+                            minimum=0.0,
+                            maximum=0.2,
+                            value=0.05,
+                            step=0.01,
+                            label="🎵 Crossfade (giây)",
+                            info="Độ dài fade giữa các đoạn. 0 = không fade, 0.05-0.1 = mượt."
+                        )
+                    
+                    max_chars_slider = gr.Slider(
+                        minimum=128,
+                        maximum=512,
+                        value=256,
+                        step=32,
+                        label="📝 Max Chars Per Chunk",
+                        info="Độ dài tối đa mỗi đoạn văn bản. Nhỏ = ổn định hơn, Lớn = ít chunk hơn."
+                    )
+                
                 # State to track current mode (replaces unreliable Textbox/Tabs input)
                 current_mode_state = gr.State("preset_mode")
                 
@@ -1090,7 +1139,8 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS") as demo:
             fn=synthesize_speech,
             inputs=[text_input, voice_select, custom_audio, custom_text, current_mode_state, 
                     generation_mode, use_batch, max_batch_size_run,
-                    lora_repo_id, lora_hf_token, lora_audio, lora_text],
+                    lora_repo_id, lora_hf_token, lora_audio, lora_text,
+                    temperature_slider, crossfade_slider, max_chars_slider],
             outputs=[audio_output, status_output]
         )
         
