@@ -77,6 +77,7 @@ dependencies = [
     "huggingface_hub",      # fetch ONNX / config / tokenizer / voices
     "PyYAML",               # gradio config.yaml
     "gradio>=5.49.1",       # web UI (vieneu-web)
+    "librosa>=0.11.0",
     "perth>=0.2.0",         # optional audio watermark (skipped gracefully if absent)
 ]
 
@@ -93,7 +94,6 @@ legacy = [
     "torch",
     "torchaudio",
     "transformers",
-    "librosa>=0.11.0",
     "neucodec>=0.0.4",
     "lmdeploy; sys_platform != 'darwin'",
     "triton-windows; sys_platform == 'win32'",
