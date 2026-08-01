@@ -25,19 +25,20 @@ RUN curl -LsSf https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.
 # Install pip and uv
 # Install uv directly
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+RUN ln -s /bin/uv /bin/dep-installer
 
 WORKDIR /workspace
 
 # Copy only requirements first
 COPY pyproject.toml uv.lock ./
 # Note: We use --no-dev and only gpu group
-RUN uv_cmd="sync" && uv $uv_cmd --frozen --no-dev --group gpu --no-install-project
+RUN dep-installer sync --frozen --no-dev --group gpu --no-install-project
 
 # Copy the rest
 COPY . .
 
 # Install the project itself (creates the vieneu-serve CLI)
-RUN uv_cmd="sync" && uv $uv_cmd --frozen --no-dev --group gpu
+RUN dep-installer sync --frozen --no-dev --group gpu
 
 # Expose LMDeploy port
 EXPOSE 23333

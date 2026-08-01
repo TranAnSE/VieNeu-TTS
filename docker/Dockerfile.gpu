@@ -29,6 +29,7 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
 
 # Ref: https://docs.astral.sh/uv/getting-started/installation/#standalone-installer
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+RUN ln -s /bin/uv /bin/dep-installer
 
 # Thiết lập thư mục làm việc
 WORKDIR /workspace
@@ -36,7 +37,7 @@ WORKDIR /workspace
 # --- Stage: Development ---
 FROM base AS dev
 COPY pyproject.toml uv.lock ./
-RUN uv_cmd="sync" && uv $uv_cmd --frozen
+RUN dep-installer sync --frozen
 
 CMD ["/bin/bash"]
 
@@ -44,7 +45,7 @@ CMD ["/bin/bash"]
 FROM base AS prod
 COPY . .
 # Enable frozen sync as we have the correct uv.lock
-RUN uv_cmd="sync" && uv $uv_cmd --frozen --no-dev --group gpu
+RUN dep-installer sync --frozen --no-dev --group gpu
 
 EXPOSE 7860
 # Use env vars for server config (GRADIO_SERVER_NAME, GRADIO_SERVER_PORT are read by gradio_main.py)
