@@ -44,6 +44,6 @@ RUN dep-installer sync --frozen --no-dev --group gpu
 EXPOSE 23333
 
 # Use Python to run the serve module directly
-ENTRYPOINT ["uv", "run", "--frozen", "python", "src/vieneu/serve.py"]
+ENTRYPOINT ["python", "src/vieneu/serve.py"]
 # Default arguments
 CMD ["--model", "pnnbao-ump/VieNeu-TTS", "--tunnel"]
