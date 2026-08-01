@@ -35,9 +35,6 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         out_path: Optional[Union[str, Path]] = None,
     ) -> str:
         """Trim silence at the edges and save a cleaned reference clip.
-
-        This mirrors the Nam Hưng workflow: a reference clip is normalized once
-        before encode so the speaker embedding and ref-codes are more stable.
         """
         import tempfile
         import soundfile as sf
@@ -177,9 +174,6 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
 
     def encode_reference(self, ref_audio: Union[str, Path], denoise: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         """Enroll a voice from a wav → ``(speaker_emb, ref_codes)``.
-
-        The reference clip is pre-cleaned (trim silence edges) before encoder
-        enrollment to mirror the more stable Nam Hưng clone pipeline.
         """
         clean_ref = self._preclean_reference_audio(ref_audio)
         return self.engine.prepare_reference(str(clean_ref), denoise=denoise, use_ref_codes=True)
