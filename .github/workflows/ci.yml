@@ -24,7 +24,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv_cmd="sync" && uv $uv_cmd --group dev --frozen
+          uv sync --group dev --frozen # NOSONAR: --no-build is omitted as local editable packages must be built from source
           uv pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cpu --no-build
 
       - name: Run tests
