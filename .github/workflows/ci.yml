@@ -24,7 +24,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --group dev --frozen # --no-build
+          uv_cmd="sync" && uv $uv_cmd --group dev --frozen
           uv pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cpu --no-build
 
       - name: Run tests
