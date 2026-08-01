@@ -36,6 +36,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
     ) -> str:
         """Trim silence at the edges and save a cleaned reference clip.
         """
+        import os
         import tempfile
         import soundfile as sf
 
@@ -61,9 +62,9 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
                 wav_trimmed = wav[start:end]
 
         if out_path is None:
-            tmp_dir = Path(tempfile.gettempdir())
-            old_name = src.stem
-            out_path = tmp_dir / f"temp_clone_optimized_{old_name}_{abs(hash(str(src)))}.wav"
+            fd, out_path = tempfile.mkstemp(prefix="temp_clone_optimized_", suffix=".wav")
+            os.close(fd)
+            out_path = Path(out_path)
 
         sf.write(str(out_path), wav_trimmed, sr)
         return str(out_path)
