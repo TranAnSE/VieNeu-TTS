@@ -65,7 +65,7 @@ for label, voice_id in voices:
     print(f"  - {label} ({voice_id})")
 
 # 2. Reading style: "tu_nhien" (natural) | "tin_tuc" (news) | "doc_truyen" (storytelling)
-audio = vieneu.infer("Bản tin sáng nay.", voice="Phạm Tuyên", style="tin_tuc")
+audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Đức", style="tin_tuc")
 
 # 3. Emotion / non-verbal cues — EXPERIMENTAL: [cười] [thở dài] [hắng giọng]
 audio = vieneu.infer("Nghe hay quá đi [cười].", voice="Trúc Ly")
@@ -83,7 +83,7 @@ audio = vieneu.infer("Nghe hay quá đi [cười].", voice="Trúc Ly")
 #     "Nếu thấy hữu ích, các bạn nhớ để lại một lượt thích và chia sẻ video này cho mọi người nhé!",
 # ] * 10   # 30 texts — enough to fill the batch and really show the GPU throughput win
 # t0 = time.time()
-# audios = vieneu.infer_batch(texts, voice="Phạm Tuyên")
+# audios = vieneu.infer_batch(texts, voice="Minh Đức")
 # elapsed = time.time() - t0
 # total_audio = sum(len(a) for a in audios) / 48_000
 # print(f"⚡ {len(texts)} texts | audio {total_audio:.1f}s | wall {elapsed:.1f}s | RTF {elapsed/total_audio:.3f}")

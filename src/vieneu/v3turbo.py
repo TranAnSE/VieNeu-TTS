@@ -348,9 +348,12 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
 
         On the PyTorch/GPU backend with ``batch_size > 1`` and more than one chunk,
         the chunks are pushed through the static-batching engine in groups of
-        ``batch_size`` (chunks share each forward step — the throughput win). On CPU
-        (ONNX) or a single chunk, each chunk goes through the single-sequence engine
-        sequentially. Output order always matches ``chunks``.
+        ``batch_size`` (chunks share each forward step — the throughput win). Groups
+        are formed over chunks SORTED by phoneme length (length bucketing): batching
+        similar-length prompts together minimizes left-padding, which cuts wasted
+        prefill compute and padding-induced numeric noise. On CPU (ONNX) or a single
+        chunk, each chunk goes through the single-sequence engine sequentially.
+        Output order always matches ``chunks``.
         """
         n = len(chunks)
         engine = self._get_batch_engine() if (batch_size > 1 and n > 1) else None
@@ -365,15 +368,18 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
                 ))
             return wavs
 
-        wavs = []
+        phs = [phonemize_text_with_emotions(c) for c in chunks]
+        order = sorted(range(n), key=lambda i: len(phs[i]))
+        wavs = [None] * n
         for i in range(0, n, batch_size):
-            group = chunks[i:i + batch_size]
+            idxs = order[i:i + batch_size]
             reqs = [{
-                "phonemes": phonemize_text_with_emotions(c),
+                "phonemes": phs[j],
                 "speaker_emb": speaker_emb, "ref_codes": ref_codes,
                 "style": style, "use_ref_codes": use_ref_codes,
-            } for c in group]
-            wavs.extend(engine.generate_batch(reqs, **sampling))
+            } for j in idxs]
+            for j, w in zip(idxs, engine.generate_batch(reqs, **sampling)):
+                wavs[j] = w
         return wavs
 
     # ── Public API ───────────────────────────────────────────────────────────

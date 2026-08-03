@@ -931,18 +931,24 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                     from vieneu.v3_turbo_serve import V3TurboBatchEngine
                     if getattr(tts, "_v3_batch_engine", None) is None:
                         tts._v3_batch_engine = V3TurboBatchEngine(tts.engine)
-                    v3_wavs = []
-                    for i in range(0, len(v3_chunks), v3_bs):
+                    # Phonemize từng TEXT chunk (giữ inline cues) rồi gộp lô theo ĐỘ DÀI
+                    # phoneme (length bucketing): các prompt cùng cỡ vào chung lô để
+                    # giảm left-padding — đỡ tốn prefill và đỡ nhiễu số học do pad.
+                    # Kết quả được trả về đúng vị trí gốc nên khớp v3_gaps khi join.
+                    v3_phs = [phonemize_text_with_emotions(c) for c in v3_chunks]
+                    v3_order = sorted(range(len(v3_chunks)), key=lambda k: len(v3_phs[k]))
+                    v3_wavs = [None] * len(v3_chunks)
+                    for bi, i in enumerate(range(0, len(v3_order), v3_bs)):
                         if _STOP_EVENT.is_set():
                             yield None, "⏹️ Đã dừng tạo giọng nói."
                             return
-                        group = v3_chunks[i:i + v3_bs]
-                        yield None, f"⚡ v3 Turbo: lô {i // v3_bs + 1} ({len(group)} đoạn, batch size {v3_bs})..."
-                        # group là các TEXT chunk -> phonemize từng cái (giữ inline cues).
-                        reqs = [{"phonemes": phonemize_text_with_emotions(c), "speaker_emb": v3_speaker_emb,
-                                 "ref_codes": ref_codes, "style": style_key, "use_ref_codes": True} for c in group]
-                        v3_wavs.extend(tts._v3_batch_engine.generate_batch(
-                            reqs, temperature=temperature, max_new_frames=300))
+                        idxs = v3_order[i:i + v3_bs]
+                        yield None, f"⚡ v3 Turbo: lô {bi + 1} ({len(idxs)} đoạn, batch size {v3_bs})..."
+                        reqs = [{"phonemes": v3_phs[j], "speaker_emb": v3_speaker_emb,
+                                 "ref_codes": ref_codes, "style": style_key, "use_ref_codes": True} for j in idxs]
+                        for j, w in zip(idxs, tts._v3_batch_engine.generate_batch(
+                                reqs, temperature=temperature, max_new_frames=300)):
+                            v3_wavs[j] = w
                     wav = join_audio_chunks(v3_wavs, sr=sr_v3, silence_ps=gaps_to_silence(v3_gaps))
                 else:
                     # CPU (ONNX) hoặc GPU khi tắt batch: xử lý TUẦN TỰ từng đoạn.
@@ -969,8 +975,10 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                         now = time.time()
                         chunk_durations.append(now - last_t)
                         last_t = now
-                        if chunk_wav is not None and len(chunk_wav) > 0:
-                            v3_wavs.append(chunk_wav)
+                        # Luôn append (kể cả rỗng) để v3_wavs khớp 1-1 với v3_chunks —
+                        # lọc bớt ở đây sẽ làm lệch v3_gaps khi join.
+                        v3_wavs.append(chunk_wav if chunk_wav is not None
+                                       else np.zeros(0, dtype=np.float32))
                         done = i + 1
                         if done < total_v3:
                             avg = sum(chunk_durations) / len(chunk_durations)
@@ -1433,15 +1441,19 @@ def _synthesize_conversation_v3(lines, mapping, temperature, max_chars_chunk, si
 
     BS = 32
     total_batches = (len(reqs) + BS - 1) // BS
-    wavs_flat = []
-    for bi, i in enumerate(range(0, len(reqs), BS)):
+    # Length bucketing: gộp lô theo độ dài phoneme để giảm left-padding; kết quả
+    # đặt về đúng vị trí gốc nên vẫn khớp req_line khi gom theo lời thoại.
+    req_order = sorted(range(len(reqs)), key=lambda k: len(reqs[k]["phonemes"]))
+    wavs_flat = [None] * len(reqs)
+    for bi, i in enumerate(range(0, len(req_order), BS)):
         if _STOP_EVENT.is_set():
             yield None, "⏹️ Đã dừng hội thoại."
             return
-        group = reqs[i:i + BS]
-        yield None, f"⚡ v3 Turbo hội thoại: lô {bi + 1}/{total_batches} ({len(group)} đoạn, batch 32)..."
-        wavs_flat.extend(tts._v3_batch_engine.generate_batch(
-            group, temperature=temperature, max_new_frames=300))
+        idxs = req_order[i:i + BS]
+        yield None, f"⚡ v3 Turbo hội thoại: lô {bi + 1}/{total_batches} ({len(idxs)} đoạn, batch 32)..."
+        for j, w in zip(idxs, tts._v3_batch_engine.generate_batch(
+                [reqs[k] for k in idxs], temperature=temperature, max_new_frames=300)):
+            wavs_flat[j] = w
 
     # Reassemble per turn (in order), then join turns with inter-turn silence.
     by_line = defaultdict(list)

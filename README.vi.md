@@ -147,7 +147,7 @@ for label, voice_id in voices:
 #     "Nếu thấy hữu ích, các bạn nhớ để lại một lượt thích và chia sẻ video này cho mọi người nhé!",
 # ] * 10   # 30 câu — đủ lấp đầy batch để thấy rõ sức mạnh throughput của GPU
 # t0 = time.time()
-# audios = vieneu.infer_batch(texts, voice="Phạm Tuyên")
+# audios = vieneu.infer_batch(texts, voice="Minh Đức")
 # elapsed = time.time() - t0
 # total_audio = sum(len(a) for a in audios) / 48_000
 # print(f"⚡ {len(texts)} câu | audio {total_audio:.1f}s | thời gian {elapsed:.1f}s | RTF {elapsed/total_audio:.3f}")
@@ -185,7 +185,7 @@ Chọn cách đọc bằng `style` (mặc định `"tu_nhien"`):
 | `"doc_truyen"` | Kể chuyện      |
 
 ```python
-audio = vieneu.infer("Bản tin sáng nay.", voice="Phạm Tuyên", style="tin_tuc")
+audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Đức", style="tin_tuc")
 ```
 
 ### Tag cảm xúc (thử nghiệm)

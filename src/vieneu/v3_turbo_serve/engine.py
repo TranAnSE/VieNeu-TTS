@@ -12,7 +12,9 @@ to a waveform at the end. Pure PyTorch, runs on CUDA (or CPU).
 """
 from __future__ import annotations
 
+import logging
 import math
+import re
 from typing import List, Optional
 
 import numpy as np
@@ -20,6 +22,20 @@ import torch
 
 from .batched_acoustic import generate_frame_batched
 from .batched_backbone import BatchedBackbone
+
+logger = logging.getLogger("Vieneu.V3TurboServe")
+
+# Guard chống "chunk câm": một row khỏe sinh ≥ ~0.4 frame trên mỗi ký tự phoneme
+# (đo thực nghiệm 0.41–1.0); dưới 0.25 gần như chắc chắn là EOS sớm / cụt giữa
+# chừng → sinh lại row đó. Độ dài phoneme được tính SAU khi loại các tag markup
+# (<en>…</en>, <|emotion_k|>) vì chúng chiếm ký tự nhưng không tốn frame audio.
+MIN_FRAMES_PER_PHONE = 0.25
+_MARKUP_RE = re.compile(r"<\|emotion_\d+\|>|</?en>")
+
+
+def _min_expected_frames(phonemes: str) -> int:
+    eff_len = len(_MARKUP_RE.sub("", phonemes or ""))
+    return max(3, math.ceil(MIN_FRAMES_PER_PHONE * eff_len))
 
 
 class V3TurboBatchEngine:
@@ -65,6 +81,7 @@ class V3TurboBatchEngine:
         repetition_penalty: float = 1.2,
         max_new_frames: int = 300,
         use_cudagraph: bool = False,
+        max_retries: int = 2,
     ) -> List[np.ndarray]:
         """Generate a waveform for each request in one batched run.
 
@@ -72,11 +89,73 @@ class V3TurboBatchEngine:
         (default 1.2, matching the single-path engine) down-weights codes already
         produced per row/codebook to avoid repetition artifacts.
 
+        Rows that come back suspiciously short (fewer than ``MIN_FRAMES_PER_PHONE``
+        frames per phoneme char — an early-EOS "silent chunk") are regenerated as a
+        smaller batch, up to ``max_retries`` times, keeping the longest attempt.
+        Set ``max_retries=0`` to disable the guard.
+
         ``use_cudagraph=True`` captures (and caches) a CUDA graph of the per-frame
         acoustic step for this batch size — big per-step speedup, reused across calls.
         It is ignored when ``repetition_penalty != 1.0`` (the penalty needs dynamic
         per-row history, which a static graph cannot hold).
         """
+        # Fill in phonemes up front so the guard can size-check every row (and so
+        # retries don't re-phonemize).
+        reqs = []
+        for r in requests:
+            if r.get("phonemes") is None:
+                from vieneu_utils.phonemize_text import phonemize_text_with_emotions
+                r = {**r, "phonemes": phonemize_text_with_emotions(r["text"])}
+            reqs.append(r)
+
+        sampling = dict(
+            temperature=temperature, top_k=top_k, top_p=top_p,
+            repetition_penalty=repetition_penalty, max_new_frames=max_new_frames,
+            use_cudagraph=use_cudagraph,
+        )
+        codes = self._generate_codes_batch(reqs, **sampling)
+
+        # Guard: re-run rows whose output is too short for their text.
+        floors = [_min_expected_frames(r["phonemes"]) for r in reqs]
+        for _ in range(max(0, max_retries)):
+            bad = [i for i in range(len(reqs)) if len(codes[i]) < floors[i]]
+            if not bad:
+                break
+            logger.warning(
+                f"⚠️ v3 Turbo batch: {len(bad)} chunk ngắn bất thường "
+                f"(rows {bad}) — đang sinh lại...")
+            retry = self._generate_codes_batch([reqs[i] for i in bad], **sampling)
+            for j, i in enumerate(bad):
+                if len(retry[j]) > len(codes[i]):
+                    codes[i] = retry[j]
+        else:
+            still_bad = [i for i in range(len(reqs)) if len(codes[i]) < floors[i]]
+            if still_bad and max_retries > 0:
+                logger.warning(
+                    f"⚠️ v3 Turbo batch: rows {still_bad} vẫn ngắn hơn ngưỡng sau "
+                    f"{max_retries} lần thử — giữ bản dài nhất.")
+
+        wavs: List[np.ndarray] = []
+        for c in codes:
+            if len(c):
+                wavs.append(self.tts._decode_codes(c.cpu()))
+            else:
+                wavs.append(np.zeros(0, dtype=np.float32))
+        return wavs
+
+    @torch.no_grad()
+    def _generate_codes_batch(
+        self,
+        requests: List[dict],
+        *,
+        temperature: float = 0.8,
+        top_k: int = 25,
+        top_p: float = 0.95,
+        repetition_penalty: float = 1.2,
+        max_new_frames: int = 300,
+        use_cudagraph: bool = False,
+    ) -> List[torch.Tensor]:
+        """One batched generation pass; returns per-row codes ``(T, n_vq)`` (no decode)."""
         cfg = self.config
         n_vq = cfg.n_vq
         eos_id = cfg.speech_generation_end_token_id
@@ -128,11 +207,8 @@ class V3TurboBatchEngine:
             se = self.model._build_inputs_embeds(slot, speaker_emb=batch_spk)
             h, cache, mask, pos = self.bb.decode_step(se, cache, mask, pos)
 
-        wavs: List[np.ndarray] = []
-        for b in range(B):
-            if codes_per_req[b]:
-                c = torch.stack(codes_per_req[b]).cpu()      # (T, n_vq)
-                wavs.append(self.tts._decode_codes(c))
-            else:
-                wavs.append(np.zeros(0, dtype=np.float32))
-        return wavs
+        return [
+            torch.stack(codes_per_req[b]) if codes_per_req[b]
+            else torch.zeros(0, cfg.n_vq, dtype=torch.long)
+            for b in range(B)
+        ]
