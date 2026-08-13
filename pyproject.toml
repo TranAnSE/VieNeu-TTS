@@ -68,17 +68,17 @@ requires-python = ">=3.10"
 # yourself — there is no [gpu] extra; see [project.optional-dependencies] below);
 # legacy backends (llama-cpp, lmdeploy, librosa, neucodec) live in the [legacy] extra.
 dependencies = [
-    "sea-g2p>=0.7.31",      # phonemizer (Rust, torch-free) — cần hàm punc_norm() (>=0.7.11)
-    "onnxruntime>=1.20.0",  # runs the v3 transformers + MOSS codec
+    "sea-g2p==0.8.4", # phonemizer (Rust, torch-free) — cần hàm punc_norm() (>=0.7.11)
+    "onnxruntime>=1.20.0", # runs the v3 transformers + MOSS codec
     "numpy",
-    "soundfile",            # audio I/O
-    "soxr",                 # lightweight resampling for voice cloning
-    "tokenizers>=0.20",     # phoneme tokenizer (torch-free)
-    "huggingface_hub",      # fetch ONNX / config / tokenizer / voices
-    "PyYAML",               # gradio config.yaml
-    "gradio>=5.49.1",       # web UI (vieneu-web)
+    "soundfile", # audio I/O
+    "soxr", # lightweight resampling for voice cloning
+    "tokenizers>=0.20", # phoneme tokenizer (torch-free)
+    "huggingface_hub", # fetch ONNX / config / tokenizer / voices
+    "PyYAML", # gradio config.yaml
+    "gradio>=5.49.1", # web UI (vieneu-web)
     "librosa>=0.11.0",
-    "perth>=0.2.0",         # optional audio watermark (skipped gracefully if absent)
+    "perth>=0.2.0", # optional audio watermark (skipped gracefully if absent)
 ]
 
 [project.urls]

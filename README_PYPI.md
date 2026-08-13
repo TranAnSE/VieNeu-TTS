@@ -64,8 +64,10 @@ print(f"\n🎙️  {len(voices)} built-in voices available:")
 for label, voice_id in voices:
     print(f"  - {label} ({voice_id})")
 
-# 2. Reading style: "tu_nhien" (natural) | "tin_tuc" (news) | "doc_truyen" (storytelling)
-audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Đức", style="tin_tuc")
+# 2. Reading style: DEPRECATED on v3 Turbo — `style` is accepted but IGNORED. The style
+#    is already implied by the reference (preset voice / cloned clip), so output is
+#    always the natural reading style. Just pick the voice:
+audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Đức")
 
 # 3. Emotion / non-verbal cues — EXPERIMENTAL: [cười] [thở dài] [hắng giọng]
 audio = vieneu.infer("Nghe hay quá đi [cười].", voice="Trúc Ly")

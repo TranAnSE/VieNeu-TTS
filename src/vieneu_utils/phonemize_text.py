@@ -208,44 +208,82 @@ def phonemize_with_dict(
     return _phonemize_cached(text)
 
 
+def _normalize_sentence_keep_cues(sentence: str, normalizer) -> str:
+    """Normalize MỘT câu, giữ nguyên inline emotion cue thành ``<|emotion_k|>``."""
+    if "[" not in sentence and "<|emotion_" not in sentence:
+        return normalizer.normalize(sentence, punc_norm=False)
+    parts = []
+    for i, part in enumerate(_EMOTION_SPLIT_RE.split(sentence)):
+        if i % 2 == 1:                       # emotion tag
+            tok = _emotion_tag_token(part)
+            parts.append(tok if tok is not None else part)
+        elif part.strip():
+            parts.append(normalizer.normalize(part, punc_norm=False))
+    return " ".join(p for p in parts if p)
+
+
+def _normalized_sentences_by_para(
+    text: str,
+    skip_normalize: bool = False,
+    keep_cues: bool = False,
+) -> list[list[str]]:
+    """Text thô -> list ĐOẠN, mỗi đoạn là list CÂU đã normalize.
+
+    Thứ tự CỐ Ý là *tách câu trước, normalize sau*: normalizer xoá sạch dấu ngoặc
+    (``"…"``/``(…)`` -> ``,``) nên nếu tách câu sau normalize thì dấu ``?`` trong
+    câu trích dẫn bị nhầm là kết câu, đẻ ra mảnh vụn kiểu ``", đúng không anh?"``.
+    Độ dài để đóng gói chunk vẫn được đo SAU normalize (ở
+    :func:`~vieneu_utils.core_utils.pack_sentences_into_chunks`), nên chunk không
+    phình khi normalizer nở text ("100$" -> "một trăm u s d").
+
+    ``punc_norm`` KHÔNG bật ở tầng câu: luật "câu < 5 từ ép dấu cuối về ``.``" sẽ
+    biến "Thế à?" thành "thế à." ngay giữa chunk, mất ngữ điệu hỏi. Dấu câu cuối
+    chỉ được chốt một lần ở tầng CHUNK.
+    """
+    from vieneu_utils.core_utils import split_into_sentences
+
+    paragraphs = [p for p in RE_NEWLINE_SPLIT.split(text) if p.strip()]
+    if not paragraphs:
+        return []
+
+    normalizer = None if skip_normalize else _get_normalizer()
+    out: list[list[str]] = []
+    for para in paragraphs:
+        sentences = split_into_sentences(para)
+        if not sentences:
+            continue
+        if skip_normalize:
+            out.append(sentences)
+        elif keep_cues:
+            out.append([_normalize_sentence_keep_cues(s, normalizer) for s in sentences])
+        else:
+            out.append(normalizer.normalize_batch(sentences, punc_norm=False))
+    return out
+
+
 def normalize_to_chunks(
     text: str,
     max_chars: int = 256,
     skip_normalize: bool = False,
 ) -> list[str]:
-    """Normalize FIRST, then split the NORMALIZED text into <= max_chars chunks.
+    """Split text thành chunks <= max_chars, cắt ở ranh giới CÂU.
 
-    Chia chunk SAU normalize. Normalizer mở rộng độ dài text (vd "100$" -> "một
-    trăm u s d", "21/02/2025" -> "ngày hai mươi mốt tháng hai năm ..."), nên nếu
-    cắt TRƯỚC khi norm thì chunk sẽ phình vượt ``max_chars`` sau khi chuẩn hóa.
-    Ở đây normalize trước rồi mới cắt theo độ dài ĐÃ chuẩn hóa nên mỗi chunk thực
-    sự <= ``max_chars``.
+    Tách câu trên text THÔ (nhận biết ngoặc/trích dẫn) -> normalize từng câu ->
+    đóng gói theo độ dài ĐÃ chuẩn hoá -> chốt dấu câu cuối mỗi chunk. Xem
+    :func:`_normalized_sentences_by_para` để biết vì sao thứ tự phải là vậy.
 
-    Để không truyền nguyên một input cỡ DOCX vào bộ regex backtracking của
-    normalizer, ta normalize theo từng ĐOẠN (tách theo newline) bằng
-    ``normalize_batch`` — ranh giới tự nhiên, không ảnh hưởng độ dài chunk cuối —
-    rồi mới gom lại và cắt. Mỗi chunk được chốt dấu câu cuối hợp lệ.
+    Normalize theo từng câu cũng giữ input cho bộ regex backtracking của
+    normalizer ở mức an toàn với văn bản cỡ DOCX.
     """
-    from vieneu_utils.core_utils import split_text_into_chunks
+    from vieneu_utils.core_utils import pack_sentences_into_chunks
 
     if not text:
         return []
 
-    if skip_normalize:
-        normalized = text
-    else:
-        normalizer = _get_normalizer()
-        paragraphs = [p for p in RE_NEWLINE_SPLIT.split(text) if p.strip()]
-        normalized = (
-            "\n".join(normalizer.normalize_batch(paragraphs, punc_norm=True))
-            if paragraphs
-            else ""
-        )
-
-    return [
-        punc_norm(c)
-        for c in split_text_into_chunks(normalized, max_chars=max_chars)
-    ]
+    chunks: list[str] = []
+    for sentences in _normalized_sentences_by_para(text, skip_normalize=skip_normalize):
+        chunks.extend(pack_sentences_into_chunks(sentences, max_chars=max_chars))
+    return [punc_norm(c) for c in chunks]
 
 
 def normalize_to_chunks_v3(text: str, max_chars: int = 256) -> list[str]:
@@ -260,26 +298,16 @@ def normalize_to_chunks_v3(text: str, max_chars: int = 256) -> list[str]:
     Trả về list TEXT chunk (mỗi chunk có thể chứa ``<|emotion_k|>``); caller
     phonemize từng chunk bằng :func:`phonemize_text_with_emotions`.
     """
-    from vieneu_utils.core_utils import split_text_into_chunks
+    from vieneu_utils.core_utils import pack_sentences_into_chunks
 
     if not text:
         return []
-    # Không có emotion cue -> dùng thẳng đường v2-gpu (kết quả giống hệt).
-    if "[" not in text and "<|emotion_" not in text:
-        return normalize_to_chunks(text, max_chars=max_chars)
 
-    # Có cue: normalize từng đoạn text giữa các cue, chèn lại token cảm xúc, rồi
-    # cắt theo text-length (token <|emotion_k|> được splitter giữ nguyên là 1 từ).
-    normalizer = _get_normalizer()
-    rebuilt = []
-    for i, part in enumerate(_EMOTION_SPLIT_RE.split(text)):
-        if i % 2 == 1:                       # emotion tag
-            tok = _emotion_tag_token(part)
-            rebuilt.append(tok if tok is not None else part)
-        elif part.strip():                   # đoạn text: normalize, giữ dấu (không ép câu)
-            rebuilt.append(normalizer.normalize(part, punc_norm=False))
-    normalized = " ".join(p for p in rebuilt if p)
-    return [punc_norm(c) for c in split_text_into_chunks(normalized, max_chars=max_chars)]
+    keep_cues = "[" in text or "<|emotion_" in text
+    chunks: list[str] = []
+    for sentences in _normalized_sentences_by_para(text, keep_cues=keep_cues):
+        chunks.extend(pack_sentences_into_chunks(sentences, max_chars=max_chars))
+    return [punc_norm(c) for c in chunks]
 
 
 def normalize_to_chunks_v3_with_gaps(
@@ -295,37 +323,27 @@ def normalize_to_chunks_v3_with_gaps(
 
     Ranh giới ``sentence``/``minor`` được phân loại LẠI trên chunk ĐÃ ``punc_norm``
     (punc_norm có thể ép dấu cuối cho câu ngắn) để khớp intonation audio thật;
-    ``para`` (ngắt đoạn) giữ nguyên. Đường có emotion cue ghép các đoạn bằng dấu
-    cách nên không còn ranh giới ``para``.
+    ``para`` (ngắt đoạn) giữ nguyên — kể cả trên đường có emotion cue.
     """
-    from vieneu_utils.core_utils import (
-        split_text_into_chunks_with_gaps,
-        _classify_gap,
-    )
+    from vieneu_utils.core_utils import pack_sentences_into_chunks, _classify_gap
 
     if not text:
         return [], []
 
-    if "[" not in text and "<|emotion_" not in text:
-        normalizer = _get_normalizer()
-        paragraphs = [p for p in RE_NEWLINE_SPLIT.split(text) if p.strip()]
-        normalized = (
-            "\n".join(normalizer.normalize_batch(paragraphs, punc_norm=True))
-            if paragraphs
-            else ""
-        )
-    else:
-        normalizer = _get_normalizer()
-        rebuilt = []
-        for i, part in enumerate(_EMOTION_SPLIT_RE.split(text)):
-            if i % 2 == 1:
-                tok = _emotion_tag_token(part)
-                rebuilt.append(tok if tok is not None else part)
-            elif part.strip():
-                rebuilt.append(normalizer.normalize(part, punc_norm=False))
-        normalized = " ".join(p for p in rebuilt if p)
+    keep_cues = "[" in text or "<|emotion_" in text
+    chunks: list[str] = []
+    gaps: list[str] = []
+    for sentences in _normalized_sentences_by_para(text, keep_cues=keep_cues):
+        para_chunks = pack_sentences_into_chunks(sentences, max_chars=max_chars)
+        if not para_chunks:
+            continue
+        if chunks:                   # ranh giới với đoạn TRƯỚC đó là ngắt đoạn
+            gaps.append("para")
+        for j, ch in enumerate(para_chunks):
+            if j > 0:                # ranh giới trong CÙNG đoạn: phân loại lại sau
+                gaps.append("sentence")
+            chunks.append(ch)
 
-    chunks, gaps = split_text_into_chunks_with_gaps(normalized, max_chars=max_chars)
     chunks = [punc_norm(c) for c in chunks]
     gaps = [g if g == "para" else _classify_gap(chunks[i]) for i, g in enumerate(gaps)]
     return chunks, gaps

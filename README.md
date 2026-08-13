@@ -17,7 +17,7 @@
 > A brand-new architecture **designed and trained from scratch by Phạm Nguyễn Ngọc Bảo** (codec: [MOSS-Audio-Tokenizer-Nano](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano); phonemizer: [sea-g2p](https://github.com/pnnbao97/sea-g2p)):
 > - **48 kHz** high-fidelity audio (up from 24 kHz).
 > - **Built-in default voices** — stable and consistent, no reference clip needed.
-> - **Reading styles**: natural, news, and storytelling.
+> - **Natural reading style** everywhere — the style follows the reference voice (the `style` argument is deprecated and ignored).
 > - **Emotion / non-verbal cues** *(experimental)*: drop `[cười]`, `[thở dài]`, `[hắng giọng]` straight into the text.
 > - **Batched generation** (batch size up to 32), including a multi-speaker **Conversation** mode that batches the whole script regardless of speaker.
 > - **Instant voice cloning** from a 3–8s clip, with automatic reference denoising.
@@ -195,26 +195,30 @@ uv run python -m apps.web_stream                  # → http://127.0.0.1:8001
 
 #### Available Voices
 
-The v3 Turbo engine includes **14 curated preset voices** covering **3 Vietnamese regions** (North, Central, South) with diverse genders and styles:
+The v3 Turbo engine includes **14 curated preset voices** covering **3 Vietnamese regions** (North, Central, South) with diverse genders and speaking characters:
 
-- **Northern (Bắc)**: Natural, news, storytelling styles
-- **Central (Trung)**: Natural style (Quang Sơn, Ngọc Trân)
-- **Southern (Nam)**: Natural, news, storytelling styles
+- **Northern (Bắc)**: e.g. Minh Đức, Trúc Ly
+- **Central (Trung)**: Quang Sơn, Ngọc Trân
+- **Southern (Nam)**: e.g. Xuân Vĩnh
 
-Each voice supports **3 reading styles**: natural (`tu_nhien`), news (`tin_tuc`), and storytelling (`doc_truyen`).
+### Reading style — **deprecated** ⚠️
 
-### Reading style
-
-Pick how the text is read with `style` (default `"tu_nhien"`):
-
-| `style`        | Meaning       |
-| -------------- | ------------- |
-| `"tu_nhien"`   | Natural / conversational |
-| `"tin_tuc"`    | News          |
-| `"doc_truyen"` | Storytelling  |
+> [!WARNING]
+> **`style` is deprecated on v3 Turbo and has no effect.** The reading style is already
+> baked into the reference itself (the speaker embedding + reference codes of the preset
+> voice or of your cloned clip), so every generation follows the reference and comes out
+> in its natural reading style.
+>
+> The `style` argument is **still accepted** by `infer`, `infer_stream`, `infer_batch`
+> and `add_voice` so existing code keeps running — whatever you pass (`"tin_tuc"`,
+> `"doc_truyen"`, …) is simply ignored. New code should just omit it.
 
 ```python
-audio = vieneu.infer("Trận Caen là một trận đánh trong Chiến tranh Trăm Năm giữa Anh và Pháp diễn ra vào ngày 26 tháng 7 năm 1346 khi quân viễn chinh Anh dưới sự chỉ huy của Edward III tấn công thành Caen do quân Pháp nắm giữ.", voice="Minh Đức", style="tin_tuc")
+# Old code — still runs, but `style` is ignored
+audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Đức", style="tin_tuc")
+
+# New code — pick the reading character through the voice / reference clip instead
+audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Đức")
 ```
 
 ### Emotion cues (experimental)
@@ -236,7 +240,6 @@ audio = vieneu.infer(
     "Đây là giọng được nhân bản tức thì.",
     ref_audio="my_voice.wav",   # a 3–8s reference clip
     denoise=True,               # default; set False if the clip is already clean
-    style="doc_truyen",
 )
 vieneu.save(audio, "cloned.wav")
 ```

@@ -819,14 +819,14 @@ def resolve_voice_id(v_id: str) -> str:
 
 # --- 2. DATA & HELPERS ---
 
-# Reading-style labels (UI) → model style keys (v3 Turbo only).
-STYLE_LABEL_TO_KEY = {"Tự nhiên": "tu_nhien", "Tin tức": "tin_tuc", "Kể chuyện": "doc_truyen"}
+# Phong cách đọc (style) đã bỏ trên v3 Turbo: style nằm sẵn trong reference
+# (speaker embedding + ref codes) nên mọi lần sinh đều là giọng tự nhiên.
 
 
 def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: str,
                       mode_tab: str, generation_mode: str, use_batch: bool, max_batch_size_run: int,
                       temperature: float, max_chars_chunk: int,
-                      style_choice: str = "Tự nhiên", denoise_ref: bool = True, session_id: str = None):
+                      denoise_ref: bool = True, session_id: str = None):
     """Synthesis with optimization support and max batch size control"""
     global tts, current_backbone, current_codec, model_loaded, using_lmdeploy
     
@@ -850,7 +850,6 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
     yield None, "📄 Đang xử lý Reference..."
     
     is_v3 = "v3" in (current_backbone or "").lower()
-    style_key = STYLE_LABEL_TO_KEY.get(style_choice, "tu_nhien")
     v3_speaker_emb = None
     try:
         ref_codes = None
@@ -945,9 +944,9 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                         idxs = v3_order[i:i + v3_bs]
                         yield None, f"⚡ v3 Turbo: lô {bi + 1} ({len(idxs)} đoạn, batch size {v3_bs})..."
                         reqs = [{"phonemes": v3_phs[j], "speaker_emb": v3_speaker_emb,
-                                 "ref_codes": ref_codes, "style": style_key, "use_ref_codes": True} for j in idxs]
+                                 "ref_codes": ref_codes, "use_ref_codes": True} for j in idxs]
                         for j, w in zip(idxs, tts._v3_batch_engine.generate_batch(
-                                reqs, temperature=temperature, max_new_frames=300)):
+                                reqs, temperature=temperature, max_new_frames=600)):
                             v3_wavs[j] = w
                     wav = join_audio_chunks(v3_wavs, sr=sr_v3, silence_ps=gaps_to_silence(v3_gaps))
                 else:
@@ -970,8 +969,8 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                         ph = phonemize_text_with_emotions(chunk)
                         chunk_wav = tts.engine.infer(
                             phonemes=ph, speaker_emb=v3_speaker_emb, ref_codes=ref_codes,
-                            style=style_key, use_ref_codes=True,
-                            temperature=temperature, max_new_frames=300)
+                            use_ref_codes=True,
+                            temperature=temperature, max_new_frames=600)
                         now = time.time()
                         chunk_durations.append(now - last_t)
                         last_t = now
@@ -1393,7 +1392,7 @@ def _synthesize_conversation_v3(lines, mapping, temperature, max_chars_chunk, si
             v_id = (cfg or {}).get('voice') or tts._default_voice
             yield None, f"⏳ [{li+1}/{len(lines)}] {line['speaker']}: {line['text'][:30]}..."
             try:
-                wav = tts.infer(line['text'], voice=v_id, style="tu_nhien",
+                wav = tts.infer(line['text'], voice=v_id,
                                 temperature=temperature, max_chars=max_chars_chunk)
             except Exception as e:
                 print(f"❌ Lỗi câu {li+1}: {e}")
@@ -1427,7 +1426,7 @@ def _synthesize_conversation_v3(lines, mapping, temperature, max_chars_chunk, si
         for chunk in line_chunks:
             reqs.append({"phonemes": phonemize_text_with_emotions(chunk),
                          "speaker_emb": spk_emb, "ref_codes": ref_codes,
-                         "style": "tu_nhien", "use_ref_codes": True})
+                         "use_ref_codes": True})
             req_line.append(li)
 
     if not reqs:
@@ -1452,7 +1451,7 @@ def _synthesize_conversation_v3(lines, mapping, temperature, max_chars_chunk, si
         idxs = req_order[i:i + BS]
         yield None, f"⚡ v3 Turbo hội thoại: lô {bi + 1}/{total_batches} ({len(idxs)} đoạn, batch 32)..."
         for j, w in zip(idxs, tts._v3_batch_engine.generate_batch(
-                [reqs[k] for k in idxs], temperature=temperature, max_new_frames=300)):
+                [reqs[k] for k in idxs], temperature=temperature, max_new_frames=600)):
             wavs_flat[j] = w
 
     # Reassemble per turn (in order), then join turns with inter-turn silence.
@@ -1982,13 +1981,6 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                                     Hướng dẫn chi tiết có tại file: `finetune/README.md` hoặc xem trên [GitHub](https://github.com/pnnbao97/VieNeu-TTS/tree/main/finetune).
                                     """)
                         
-                        style_dropdown = gr.Dropdown(
-                            ["Tự nhiên", "Tin tức", "Kể chuyện"],
-                            value="Tự nhiên",
-                            label="🎭 Phong cách đọc",
-                            info="Phong cách giọng đọc (áp dụng cho VieNeu-TTS v3).",
-                        )
-
                         generation_mode = gr.Radio(
                             ["Standard (Một lần)"],
                             value="Standard (Một lần)",
@@ -2312,7 +2304,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
             inputs=[text_input, voice_select, custom_audio, custom_text, current_mode_state,
                     generation_mode, use_batch, max_batch_size_run,
                     temperature_slider, max_chars_chunk_slider,
-                    style_dropdown, denoise_checkbox, session_id_state],
+                    denoise_checkbox, session_id_state],
             outputs=[audio_output, status_output, estimate_output]
         )
         btn_generate.click(lambda: gr.update(visible=False), outputs=[download_btn])

@@ -9,7 +9,7 @@ Quick start:
     from vieneu._v3_turbo_engine import VieNeuTTSv3Turbo
     tts = VieNeuTTSv3Turbo()
     spk, codes = tts.prepare_reference("reference_voice.wav")   # enroll a voice once
-    wav = tts.infer(phonemes=ph, speaker_emb=spk, ref_codes=codes, style="tu_nhien")
+    wav = tts.infer(phonemes=ph, speaker_emb=spk, ref_codes=codes)
 
 Credits
 -------
@@ -99,11 +99,14 @@ class VieNeuTTSv3Turbo:
 
     # ── Style / speaker resolution ─────────────────────────────────────────────
 
-    def _resolve_style_id(self, style) -> int:
-        if isinstance(style, int):
-            return style
-        labels = getattr(self.config, "style_labels", None) or {}
-        return labels.get(style, self.config.default_style_token_id)
+    def _resolve_style_id(self, style=None) -> int:
+        """Always the natural-style token (DEPRECATED ``style``, kept for compat).
+
+        The speaking style is carried by the reference (speaker embedding + ref
+        codes), so the head token is fixed to the natural style; whatever ``style``
+        a caller passes is ignored.
+        """
+        return int(self.config.default_style_token_id)
 
     def _resolve_speaker_emb(self, speaker_emb: Optional[np.ndarray]) -> Optional[torch.Tensor]:
         if not self.use_speaker_embedding:
@@ -141,25 +144,26 @@ class VieNeuTTSv3Turbo:
 
     # ── Public synthesis ────────────────────────────────────────────────────────
 
-    def infer(self, phonemes: Optional[str]=None, text: Optional[str]=None, ref_codes: Optional[np.ndarray]=None, speaker_emb: Optional[np.ndarray]=None, style: str='tu_nhien', use_ref_codes: bool=True, temperature: float=0.8, top_k: int=25, top_p: float=0.95, max_new_frames: int=300, repetition_penalty: float=1.2) -> np.ndarray:
+    def infer(self, phonemes: Optional[str]=None, text: Optional[str]=None, ref_codes: Optional[np.ndarray]=None, speaker_emb: Optional[np.ndarray]=None, style=None, use_ref_codes: bool=True, temperature: float=0.8, top_k: int=25, top_p: float=0.95, max_new_frames: int=600, repetition_penalty: float=1.2) -> np.ndarray:
         """Synthesize one (already phonemized) chunk into a float32, 48 kHz waveform.
 
         Args:
             phonemes: SEA-G2P phoneme string. If ``None``, ``text`` is phonemized.
             ref_codes / speaker_emb: reference voice from :meth:`prepare_reference`.
-            style: speaking style name (see the model's ``style_labels``).
+            style: DEPRECATED and ignored — the speaking style is carried by the
+                reference, so generation is always the natural style.
             use_ref_codes: keep the in-context reference frames (fidelity) or drop
                 them and rely on the speaker embedding only (consistency).
         """
         codes = self._generate_codes(phonemes, text, ref_codes, speaker_emb, style, use_ref_codes, temperature, top_k, top_p, max_new_frames, repetition_penalty)
         return self._decode_codes(codes)
 
-    def infer_stream(self, phonemes: Optional[str]=None, text: Optional[str]=None, ref_codes: Optional[np.ndarray]=None, speaker_emb: Optional[np.ndarray]=None, style: str='tu_nhien', use_ref_codes: bool=True, temperature: float=0.8, top_k: int=25, top_p: float=0.95, max_new_frames: int=300, chunk_frames: int=25, repetition_penalty: float=1.2) -> Generator[np.ndarray, None, None]:
+    def infer_stream(self, phonemes: Optional[str]=None, text: Optional[str]=None, ref_codes: Optional[np.ndarray]=None, speaker_emb: Optional[np.ndarray]=None, style=None, use_ref_codes: bool=True, temperature: float=0.8, top_k: int=25, top_p: float=0.95, max_new_frames: int=600, chunk_frames: int=25, repetition_penalty: float=1.2) -> Generator[np.ndarray, None, None]:
         """Like :meth:`infer` but yields the waveform in chunks for low latency."""
         spk_t = self._resolve_speaker_emb(speaker_emb)
         if not use_ref_codes:
             ref_codes = None
-        style_id = self._resolve_style_id(style)
+        style_id = self._resolve_style_id()
         prompt_2d = self._build_prompt_2d(phonemes, text, ref_codes, style_id)
         with self._lock:
             yield from self._stream_generate(prompt_2d, spk_t, temperature, top_k, top_p, max_new_frames, chunk_frames, repetition_penalty=repetition_penalty)
@@ -176,7 +180,7 @@ class VieNeuTTSv3Turbo:
 
     @torch.no_grad()
     def _generate_codes(self, phonemes, text, ref_codes, speaker_emb, style, use_ref_codes, temperature, top_k, top_p, max_new_frames, repetition_penalty: float=1.2) -> torch.LongTensor:
-        style_id = self._resolve_style_id(style)
+        style_id = self._resolve_style_id()   # `style` deprecated/ignored
         spk_t = self._resolve_speaker_emb(speaker_emb)
         if not use_ref_codes:
             ref_codes = None

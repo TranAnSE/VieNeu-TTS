@@ -1,7 +1,12 @@
 import numpy as np
 import pytest
 from vieneu.utils import _linear_overlap_add, extract_speech_ids
-from vieneu_utils.core_utils import split_text_into_chunks, join_audio_chunks
+from vieneu_utils.core_utils import (
+    split_text_into_chunks,
+    split_into_sentences,
+    pack_sentences_into_chunks,
+    join_audio_chunks,
+)
 
 # --- Text Utils Tests ---
 
@@ -18,6 +23,76 @@ def test_split_text_paragraphs():
     assert len(chunks) == 2
     assert "Đoạn 1" in chunks[0]
     assert "Đoạn 2" in chunks[1]
+
+# --- Sentence splitting (quote-aware) ---
+
+def test_split_into_sentences_basic():
+    assert split_into_sentences("Câu một. Câu hai! Câu ba?") == [
+        "Câu một.", "Câu hai!", "Câu ba?",
+    ]
+
+def test_split_into_sentences_keeps_quoted_question_together():
+    """Dấu .!? trong trích dẫn KHÔNG phải ranh giới câu."""
+    text = 'Có phải ý anh là, kiểu như: "Rồi sao nữa? Đến bao giờ?", đúng không anh?'
+    assert split_into_sentences(text) == [text]
+
+def test_split_into_sentences_brackets():
+    assert split_into_sentences("Cái đó (tôi nghĩ vậy. chắc thế) là đúng. Xong.") == [
+        "Cái đó (tôi nghĩ vậy. chắc thế) là đúng.", "Xong.",
+    ]
+
+def test_split_into_sentences_unbalanced_quote_falls_back():
+    """Một dấu nháy lạc không được nuốt phần còn lại thành một câu khổng lồ."""
+    assert split_into_sentences('Câu một. Câu hai lệch " ở đây. Câu ba.') == [
+        "Câu một.", 'Câu hai lệch " ở đây.', "Câu ba.",
+    ]
+
+def test_split_into_sentences_apostrophe_is_not_a_quote():
+    assert split_into_sentences("He said don't worry. Then he left.") == [
+        "He said don't worry.", "Then he left.",
+    ]
+
+def test_split_into_sentences_decimal_not_split():
+    """`.` không theo sau bởi khoảng trắng thì không phải ranh giới câu."""
+    assert split_into_sentences("Giá 3.5 triệu. Lúc 8.30 sáng.") == [
+        "Giá 3.5 triệu.", "Lúc 8.30 sáng.",
+    ]
+
+def test_split_into_sentences_repeated_punct():
+    assert split_into_sentences("Câu một... Câu hai?! Câu ba.") == [
+        "Câu một...", "Câu hai?!", "Câu ba.",
+    ]
+
+# --- Packing ---
+
+def test_pack_sentences_respects_max_chars():
+    sents = ["A" * 30 + ".", "B" * 30 + ".", "C" * 30 + "."]
+    chunks = pack_sentences_into_chunks(sents, max_chars=70)
+    assert all(len(c) <= 70 for c in chunks)
+    assert "".join(chunks).count("A") == 30
+
+def test_pack_sentences_splits_oversized_sentence_at_commas():
+    sent = "phần một, " + "x" * 40 + ", phần hai, " + "y" * 40 + "."
+    chunks = pack_sentences_into_chunks([sent], max_chars=60)
+    assert len(chunks) > 1
+    assert all(len(c) <= 60 for c in chunks)
+
+def test_chunking_cuts_at_sentence_boundary_not_mid_quote():
+    """Regression: cắt ở ranh giới câu, không đẻ ra mảnh vụn mở đầu bằng dấu phẩy."""
+    text = (
+        "Nghe anh chia sẻ mà em thấy như đang nói trúng tim đen của chính mình và "
+        "rất nhiều bạn bè xung quanh vậy. Có phải ý anh là cái cảm giác khi mình "
+        "đạt được KPI, hoàn thành một mục tiêu to tát, nhận được những lời khen "
+        "ngợi từ sếp hay đồng nghiệp, nhưng thay vì thấy hạnh phúc thì trong lòng "
+        'lại trống rỗng, kiểu như: "Rồi sao nữa? Mình phải tiếp tục vòng quay này '
+        'đến bao giờ?", đúng không anh?'
+    )
+    assert len(text) > 384
+    chunks = split_text_into_chunks(text, max_chars=384)
+    assert len(chunks) == 2
+    assert chunks[0].endswith("xung quanh vậy.")
+    assert chunks[1].startswith("Có phải ý anh")
+    assert not any(c.lstrip().startswith(",") for c in chunks)
 
 # --- Audio Utils Tests ---
 

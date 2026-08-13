@@ -58,9 +58,11 @@ class V3TurboBatchEngine:
 
     @torch.no_grad()
     def _prompt_embeds(self, req) -> torch.Tensor:
-        # Each request carries its own style, reference (speaker_emb + ref_codes) and
-        # optional use_ref_codes switch. The speaker anchor is added to every prefill row.
-        style_id = self.tts._resolve_style_id(req.get("style", "tu_nhien"))
+        # Each request carries its own reference (speaker_emb + ref_codes) and optional
+        # use_ref_codes switch. The speaker anchor is added to every prefill row.
+        # A "style" key in the request is accepted but ignored (deprecated): the style
+        # is implied by the reference, so the head token is always the natural style.
+        style_id = self.tts._resolve_style_id()
         phonemes = req.get("phonemes")
         if phonemes is None:
             from vieneu_utils.phonemize_text import phonemize_text_with_emotions
@@ -79,7 +81,7 @@ class V3TurboBatchEngine:
         top_k: int = 25,
         top_p: float = 0.95,
         repetition_penalty: float = 1.2,
-        max_new_frames: int = 300,
+        max_new_frames: int = 600,
         use_cudagraph: bool = False,
         max_retries: int = 2,
     ) -> List[np.ndarray]:
@@ -152,7 +154,7 @@ class V3TurboBatchEngine:
         top_k: int = 25,
         top_p: float = 0.95,
         repetition_penalty: float = 1.2,
-        max_new_frames: int = 300,
+        max_new_frames: int = 600,
         use_cudagraph: bool = False,
     ) -> List[torch.Tensor]:
         """One batched generation pass; returns per-row codes ``(T, n_vq)`` (no decode)."""

@@ -4,8 +4,13 @@ VieNeu-TTS v3 Turbo backend (PyTorch).
     from vieneu import Vieneu
     tts = Vieneu(mode="v3turbo")
     wav = tts.infer("Xin chào", ref_audio="ref.wav")   # clone a voice
-    wav = tts.infer("Xin chào", voice="Xuân Vĩnh", style="doc_truyen")  # preset voice
+    wav = tts.infer("Xin chào", voice="Xuân Vĩnh")     # preset voice
     tts.save(wav, "out.wav")
+
+``style`` is DEPRECATED on v3 Turbo: the speaking style is already implied by the
+reference voice (speaker embedding + reference codes), so generation is always the
+natural style. The argument is still accepted everywhere for backward compatibility,
+but it is ignored.
 """
 import logging
 from pathlib import Path
@@ -144,6 +149,9 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
             self.backend = "pytorch"
         logger.info(f"✅ VieNeu-TTS v3 Turbo ready (backend={self.backend})")
 
+        # Style is deprecated on v3 Turbo: it is implied by the reference (speaker
+        # embedding + ref codes), so every generation uses the natural style. Kept
+        # only as voice metadata / for backward-compatible call signatures.
         self.default_style = "tu_nhien"
         self._preset_voices: dict = {}
         self._default_voice: Optional[str] = None
@@ -226,12 +234,15 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
 
     def add_voice(self, name: str, ref_audio: Union[str, Path], *, denoise: bool = True,
                   use_ref_codes: bool = True, description: str = "", gender: str = "",
-                  style: str = "tu_nhien", save: bool = False) -> str:
+                  style: Any = None, save: bool = False) -> str:
         """Register a custom voice under ``name`` for use as ``infer(..., voice=name)``.
 
         ``ref_audio`` is enrolled once (denoised + trimmed, then speaker embedding +
         reference codes are extracted). Pass ``denoise=False`` if the clip is already
         clean. Set ``save=True`` to persist it to the voices file for later sessions.
+
+        ``style`` is deprecated: it is stored as metadata only and never changes how
+        the voice is synthesized (the style is implied by the reference itself).
         """
         if not name or not str(name).strip():
             raise ValueError("Tên giọng không được để trống.")
@@ -249,7 +260,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         self._preset_voices[name] = {
             "description": description,
             "gender": gender,
-            "style": style,
+            "style": style or self.default_style,   # metadata only (deprecated)
             "speaker_emb": np.asarray(speaker_emb, dtype=np.float32),
             "codes": None if ref_codes is None else np.asarray(ref_codes, dtype=np.int64),
         }
@@ -339,7 +350,6 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         chunks: List[str],
         speaker_emb: np.ndarray,
         ref_codes: Optional[np.ndarray],
-        style: str,
         use_ref_codes: bool,
         batch_size: int,
         sampling: dict,
@@ -364,7 +374,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
                 ph = phonemize_text_with_emotions(chunk)
                 wavs.append(self.engine.infer(
                     phonemes=ph, speaker_emb=speaker_emb, ref_codes=ref_codes,
-                    style=style, use_ref_codes=use_ref_codes, **sampling,
+                    use_ref_codes=use_ref_codes, **sampling,
                 ))
             return wavs
 
@@ -376,7 +386,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
             reqs = [{
                 "phonemes": phs[j],
                 "speaker_emb": speaker_emb, "ref_codes": ref_codes,
-                "style": style, "use_ref_codes": use_ref_codes,
+                "use_ref_codes": use_ref_codes,
             } for j in idxs]
             for j, w in zip(idxs, engine.generate_batch(reqs, **sampling)):
                 wavs[j] = w
@@ -388,13 +398,13 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         text: str,
         ref_audio: Optional[Union[str, Path]] = None,
         voice: Optional[Union[str, dict]] = None,
-        style: str = "tu_nhien",
+        style: Any = None,   # DEPRECATED: bỏ qua — style đã nằm trong ref code (luôn tự nhiên)
         denoise: bool = True,
         use_ref_codes: bool = True,
         temperature: float = 0.8,
         top_k: int = 25,
         top_p: float = 0.95,
-        max_new_frames: int = 300,
+        max_new_frames: int = 600,
         repetition_penalty: float = 1.2,
         max_chars: int = 256,
         silence_p: float = 0.15,
@@ -403,6 +413,12 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         batch_size: Optional[int] = None,   # GPU: trần chunk/forward (None → self.max_batch_size; 1 → tắt batch)
         **kwargs: Any,
     ) -> np.ndarray:
+        """Synthesize ``text`` into one 48 kHz waveform.
+
+        ``style`` is deprecated and ignored (kept only so older code keeps running):
+        the reading style comes from the reference voice, so output is always the
+        natural style.
+        """
         speaker_emb, ref_codes = self._resolve_ref(voice, ref_audio, denoise, use_ref_codes)
 
         chunks, gaps = normalize_to_chunks_v3_with_gaps(text, max_chars=max_chars)
@@ -416,7 +432,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         )
         # GPU gộp các chunk vào cùng forward; CPU/1-chunk chạy tuần tự (xem _infer_chunks).
         all_wavs = self._infer_chunks(
-            chunks, speaker_emb, ref_codes, style, use_ref_codes, bs, sampling
+            chunks, speaker_emb, ref_codes, use_ref_codes, bs, sampling
         )
 
         # Im lặng theo loại ranh giới: ngắt đoạn > hết câu > ngắt trong câu.
@@ -430,13 +446,13 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         text: str,
         ref_audio: Optional[Union[str, Path]] = None,
         voice: Optional[Union[str, dict]] = None,
-        style: str = "tu_nhien",
+        style: Any = None,   # DEPRECATED: bỏ qua (xem `infer`)
         denoise: bool = True,
         use_ref_codes: bool = True,
         temperature: float = 0.8,
         top_k: int = 25,
         top_p: float = 0.95,
-        max_new_frames: int = 300,
+        max_new_frames: int = 600,
         repetition_penalty: float = 1.2,
         max_chars: int = 256,
         apply_watermark: bool = True,
@@ -453,7 +469,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
             if stream_fn is not None:
                 for sub in stream_fn(
                     phonemes=ph, speaker_emb=speaker_emb, ref_codes=ref_codes,
-                    style=style, use_ref_codes=use_ref_codes,
+                    use_ref_codes=use_ref_codes,
                     temperature=temperature, top_k=top_k, top_p=top_p,
                     max_new_frames=max_new_frames, repetition_penalty=repetition_penalty,
                 ):
@@ -463,7 +479,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
             else:
                 wav = self.engine.infer(
                     phonemes=ph, speaker_emb=speaker_emb, ref_codes=ref_codes,
-                    style=style, use_ref_codes=use_ref_codes,
+                    use_ref_codes=use_ref_codes,
                     temperature=temperature, top_k=top_k, top_p=top_p,
                     max_new_frames=max_new_frames, repetition_penalty=repetition_penalty,
                 )
@@ -474,13 +490,13 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         texts: List[str],
         ref_audio: Optional[Union[str, Path]] = None,
         voice: Optional[Union[str, dict]] = None,
-        style: str = "tu_nhien",
+        style: Any = None,   # DEPRECATED: bỏ qua (xem `infer`)
         denoise: bool = True,
         use_ref_codes: bool = True,
         temperature: float = 0.8,
         top_k: int = 25,
         top_p: float = 0.95,
-        max_new_frames: int = 300,
+        max_new_frames: int = 600,
         repetition_penalty: float = 1.2,
         max_chars: int = 256,
         apply_watermark: bool = True,
@@ -489,7 +505,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
     ) -> List[np.ndarray]:
         """Synthesize many texts, returning one waveform each (same order as ``texts``).
 
-        All texts share one voice/style (resolved once). On the PyTorch/GPU backend the
+        All texts share one voice (resolved once). On the PyTorch/GPU backend the
         chunks from *every* text are flattened and batched together in groups of
         ``batch_size`` — so even many short texts fill the batch and share forward steps.
         On CPU (ONNX) this runs sequentially. Output equals per-text ``infer`` (equivalent,
@@ -521,7 +537,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
             return [empty for _ in texts]
 
         flat_wavs = self._infer_chunks(
-            flat_chunks, speaker_emb, ref_codes, style, use_ref_codes, bs, sampling
+            flat_chunks, speaker_emb, ref_codes, use_ref_codes, bs, sampling
         )
 
         # Gom wav về đúng text (thứ tự flat_wavs khớp flat_chunks/owner), rồi join từng text.

@@ -270,10 +270,13 @@ class OnnxV3LiteEngine:
         return int(cand[np.random.choice(cand.shape[-1], p=p)])
 
     # ── style / prompt build (numpy, mirror build_prompt_2d) ───────────────────
-    def _resolve_style_id(self, style) -> int:
-        if isinstance(style, (int, np.integer)):
-            return int(style)
-        return int(self.style_labels.get(style, self.default_style_id))
+    def _resolve_style_id(self, style=None) -> int:
+        """Always the natural-style token (DEPRECATED ``style``, kept for compat).
+
+        Style comes from the reference (speaker embedding + ref codes), so the head
+        token is fixed to the natural style and ``style`` is ignored.
+        """
+        return int(self.default_style_id)
 
     def _build_rows(self, phonemes: str, ref_codes: Optional[np.ndarray], style_id: int) -> np.ndarray:
         phone_ids = self.tokenizer.encode(phonemes, add_special_tokens=False).ids
@@ -367,10 +370,11 @@ class OnnxV3LiteEngine:
 
     # ── Public synthesis ───────────────────────────────────────────────────────
     def infer(self, phonemes: Optional[str] = None, text: str = "", ref_codes=None,
-              speaker_emb=None, style: str = "tu_nhien", use_ref_codes: bool = True,
+              speaker_emb=None, style=None,   # style: DEPRECATED, ignored (luôn tự nhiên)
+              use_ref_codes: bool = True,
               ref_audio=None, ref_text=None, ref_phonemes=None,
               temperature: float = 0.8, top_k: int = 25, top_p: float = 0.95,
-              max_new_frames: int = 300, repetition_penalty: float = 1.2, **_kw):
+              max_new_frames: int = 600, repetition_penalty: float = 1.2, **_kw):
         if ref_codes is None and ref_audio is not None:
             speaker_emb, ref_codes = self.prepare_reference(ref_audio, use_ref_codes=use_ref_codes)
         if phonemes is None:
@@ -378,7 +382,7 @@ class OnnxV3LiteEngine:
             phonemes = phonemize_text_with_emotions(text)
         if not use_ref_codes:
             ref_codes = None
-        style_id = self._resolve_style_id(style)
+        style_id = self._resolve_style_id()
         anchor = self._speaker_anchor(speaker_emb)
         rows = self._build_rows(phonemes, ref_codes, style_id)
         prompt_embeds = self._embed_rows(rows, anchor)              # (1, T, H)
@@ -445,9 +449,10 @@ class OnnxV3LiteEngine:
         return d["audio"][0].mean(0)[: int(d["audio_lengths"][0])].astype(np.float32)
 
     def infer_stream(self, phonemes: Optional[str] = None, text: str = "", ref_codes=None,
-                     speaker_emb=None, style: str = "tu_nhien", use_ref_codes: bool = True,
+                     speaker_emb=None, style=None,   # style: DEPRECATED, ignored
+                     use_ref_codes: bool = True,
                      temperature: float = 0.8, top_k: int = 25, top_p: float = 0.95,
-                     max_new_frames: int = 300, chunk_frames: int = 25,
+                     max_new_frames: int = 600, chunk_frames: int = 25,
                      repetition_penalty: float = 1.2, **_kw) -> Generator[np.ndarray, None, None]:
         """Native low-latency streaming: yields 48 kHz audio as frames are produced.
 
@@ -457,7 +462,7 @@ class OnnxV3LiteEngine:
         """
         if self.sess_codec_step is None or self._codec_stream_spec is None:
             yield self.infer(phonemes=phonemes, text=text, ref_codes=ref_codes,
-                             speaker_emb=speaker_emb, style=style, use_ref_codes=use_ref_codes,
+                             speaker_emb=speaker_emb, use_ref_codes=use_ref_codes,
                              temperature=temperature, top_k=top_k, top_p=top_p,
                              max_new_frames=max_new_frames, repetition_penalty=repetition_penalty)
             return
@@ -466,7 +471,7 @@ class OnnxV3LiteEngine:
             phonemes = phonemize_text_with_emotions(text)
         if not use_ref_codes:
             ref_codes = None
-        style_id = self._resolve_style_id(style)
+        style_id = self._resolve_style_id()
         anchor = self._speaker_anchor(speaker_emb)
         rows = self._build_rows(phonemes, ref_codes, style_id)
         prompt_embeds = self._embed_rows(rows, anchor)
