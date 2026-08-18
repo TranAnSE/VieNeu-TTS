@@ -195,11 +195,12 @@ uv run python -m apps.web_stream                  # → http://127.0.0.1:8001
 
 #### Available Voices
 
-The v3 Turbo engine includes **19 curated preset voices** covering **3 Vietnamese regions** (North, Central, South) with diverse genders and speaking characters:
+The v3 Turbo engine includes **20 curated preset voices** — 19 Vietnamese voices covering **3 regions** (North, Central, South) with diverse genders and speaking characters, plus an English voice:
 
 - **Northern (Bắc)**: e.g. Minh Đức, Phạm Tuyên, Trúc Ly, Mai Anh, Quỳnh Anh
 - **Central (Trung)**: Quang Sơn, Ngọc Trân
 - **Southern (Nam)**: e.g. Xuân Vĩnh, Thái Sơn, Thùy Dung, Mỹ Duyên
+- **English**: Adam
 
 ### Reading style — **deprecated** ⚠️
 
