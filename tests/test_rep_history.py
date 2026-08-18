@@ -54,8 +54,18 @@ def test_setlike_interface_for_samplers():
 
 
 def test_sample_token_respects_window():
-    torch = pytest.importorskip("torch")
-    from vieneu._v3_turbo_engine.modeling_v3_turbo import _sample_token
+    # Không dùng importorskip("torch"): test_base_utils gán sys.modules["torch"]
+    # = MagicMock() (rò rỉ sang cả session) nên importorskip vẫn "thấy" torch trên
+    # CI torch-free. Dọn mock đó rồi import thật — thiếu torch thì skip.
+    import sys as _sys
+    from unittest.mock import MagicMock as _MM
+    for _k in [k for k in _sys.modules if (k == "torch" or k.startswith("torch.")) and isinstance(_sys.modules[k], _MM)]:
+        del _sys.modules[_k]
+    try:
+        import torch
+        from vieneu._v3_turbo_engine.modeling_v3_turbo import _sample_token
+    except (ImportError, ModuleNotFoundError):
+        pytest.skip("PyTorch not available")
 
     torch.manual_seed(0)
     logits = torch.randn(1024)
