@@ -22,6 +22,7 @@ import torch
 
 from .batched_acoustic import generate_frame_batched
 from .batched_backbone import BatchedBackbone
+from .._v3_turbo_engine.rep_history import DEFAULT_REP_WINDOW, RepetitionHistory
 
 logger = logging.getLogger("Vieneu.V3TurboServe")
 
@@ -81,7 +82,8 @@ class V3TurboBatchEngine:
         top_k: int = 25,
         top_p: float = 0.95,
         repetition_penalty: float = 1.2,
-        max_new_frames: int = 600,
+        repetition_window: int = DEFAULT_REP_WINDOW,
+        max_new_frames: int = 300,
         use_cudagraph: bool = False,
         max_retries: int = 2,
     ) -> List[np.ndarray]:
@@ -112,8 +114,8 @@ class V3TurboBatchEngine:
 
         sampling = dict(
             temperature=temperature, top_k=top_k, top_p=top_p,
-            repetition_penalty=repetition_penalty, max_new_frames=max_new_frames,
-            use_cudagraph=use_cudagraph,
+            repetition_penalty=repetition_penalty, repetition_window=repetition_window,
+            max_new_frames=max_new_frames, use_cudagraph=use_cudagraph,
         )
         codes = self._generate_codes_batch(reqs, **sampling)
 
@@ -154,7 +156,8 @@ class V3TurboBatchEngine:
         top_k: int = 25,
         top_p: float = 0.95,
         repetition_penalty: float = 1.2,
-        max_new_frames: int = 600,
+        repetition_window: int = DEFAULT_REP_WINDOW,
+        max_new_frames: int = 300,
         use_cudagraph: bool = False,
     ) -> List[torch.Tensor]:
         """One batched generation pass; returns per-row codes ``(T, n_vq)`` (no decode)."""
@@ -173,9 +176,9 @@ class V3TurboBatchEngine:
         spk_list = [self.tts._resolve_speaker_emb(r.get("speaker_emb")) for r in requests]
         batch_spk = torch.cat(spk_list, dim=0) if (spk_list and spk_list[0] is not None) else None
 
-        # Per-row, per-codebook history for the repetition penalty (matches the
-        # single-path decode_one_frame). None when the penalty is disabled.
-        history = ([[set() for _ in range(n_vq)] for _ in range(B)]
+        # Per-row, per-codebook sliding-window history for the repetition penalty
+        # (matches the single-path decode_one_frame). None when the penalty is disabled.
+        history = ([RepetitionHistory(n_vq, repetition_window) for _ in range(B)]
                    if not math.isclose(repetition_penalty, 1.0) else None)
         # CUDA graph bakes in a static step → incompatible with dynamic rep-penalty.
         use_graph = use_cudagraph and dev.type == "cuda" and math.isclose(repetition_penalty, 1.0)

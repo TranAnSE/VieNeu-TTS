@@ -19,6 +19,7 @@ from typing import Any, Generator, List, Optional, Tuple, Union
 import numpy as np
 
 from .base import BaseVieneuTTS
+from ._v3_turbo_engine.rep_history import DEFAULT_REP_WINDOW
 from vieneu_utils.phonemize_text import (
     phonemize_text_with_emotions,
     normalize_to_chunks_v3,
@@ -404,8 +405,9 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         temperature: float = 0.8,
         top_k: int = 25,
         top_p: float = 0.95,
-        max_new_frames: int = 600,
+        max_new_frames: int = 300,
         repetition_penalty: float = 1.2,
+        repetition_window: int = DEFAULT_REP_WINDOW,
         max_chars: int = 256,
         silence_p: float = 0.15,
         crossfade_p: float = 0.0,
@@ -429,6 +431,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         sampling = dict(
             temperature=temperature, top_k=top_k, top_p=top_p,
             max_new_frames=max_new_frames, repetition_penalty=repetition_penalty,
+            repetition_window=repetition_window,
         )
         # GPU gộp các chunk vào cùng forward; CPU/1-chunk chạy tuần tự (xem _infer_chunks).
         all_wavs = self._infer_chunks(
@@ -452,8 +455,9 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         temperature: float = 0.8,
         top_k: int = 25,
         top_p: float = 0.95,
-        max_new_frames: int = 600,
+        max_new_frames: int = 300,
         repetition_penalty: float = 1.2,
+        repetition_window: int = DEFAULT_REP_WINDOW,
         max_chars: int = 256,
         apply_watermark: bool = True,
         **kwargs: Any,
@@ -472,6 +476,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
                     use_ref_codes=use_ref_codes,
                     temperature=temperature, top_k=top_k, top_p=top_p,
                     max_new_frames=max_new_frames, repetition_penalty=repetition_penalty,
+                    repetition_window=repetition_window,
                 ):
                     if sub is None or len(sub) == 0:
                         continue
@@ -482,6 +487,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
                     use_ref_codes=use_ref_codes,
                     temperature=temperature, top_k=top_k, top_p=top_p,
                     max_new_frames=max_new_frames, repetition_penalty=repetition_penalty,
+                    repetition_window=repetition_window,
                 )
                 yield self._apply_watermark(wav) if apply_watermark else wav
 
@@ -496,8 +502,9 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         temperature: float = 0.8,
         top_k: int = 25,
         top_p: float = 0.95,
-        max_new_frames: int = 600,
+        max_new_frames: int = 300,
         repetition_penalty: float = 1.2,
+        repetition_window: int = DEFAULT_REP_WINDOW,
         max_chars: int = 256,
         apply_watermark: bool = True,
         batch_size: Optional[int] = None,
@@ -519,6 +526,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         sampling = dict(
             temperature=temperature, top_k=top_k, top_p=top_p,
             max_new_frames=max_new_frames, repetition_penalty=repetition_penalty,
+            repetition_window=repetition_window,
         )
 
         # Cắt chunk từng text, nhớ chunk thuộc text nào (owner) và gaps để join lại.

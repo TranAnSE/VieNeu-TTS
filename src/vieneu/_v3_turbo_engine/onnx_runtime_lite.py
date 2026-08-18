@@ -33,6 +33,8 @@ from typing import Generator, List, Optional, Tuple, Union
 
 import numpy as np
 
+from .rep_history import DEFAULT_REP_WINDOW, RepetitionHistory
+
 _V3_REPO = "pnnbao-ump/VieNeu-TTS-v3-Turbo"
 _CODEC_REPO = "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX"
 _GRAPH_FILES = [
@@ -374,7 +376,8 @@ class OnnxV3LiteEngine:
               use_ref_codes: bool = True,
               ref_audio=None, ref_text=None, ref_phonemes=None,
               temperature: float = 0.8, top_k: int = 25, top_p: float = 0.95,
-              max_new_frames: int = 600, repetition_penalty: float = 1.2, **_kw):
+              max_new_frames: int = 300, repetition_penalty: float = 1.2,
+              repetition_window: int = DEFAULT_REP_WINDOW, **_kw):
         if ref_codes is None and ref_audio is not None:
             speaker_emb, ref_codes = self.prepare_reference(ref_audio, use_ref_codes=use_ref_codes)
         if phonemes is None:
@@ -393,7 +396,7 @@ class OnnxV3LiteEngine:
             past_v = [pre[1 + self.L + i] for i in range(self.L)]
             h = pre[0][:, -1]
             Tprompt = prompt_embeds.shape[1]
-            hist = [set() for _ in range(self.n_vq)] if not math.isclose(repetition_penalty, 1.0) else None
+            hist = RepetitionHistory(self.n_vq, repetition_window) if not math.isclose(repetition_penalty, 1.0) else None
             frames: List[np.ndarray] = []
             for t in range(max_new_frames):
                 codes, eos = self._acoustic_frame(h, temperature, top_k, top_p, repetition_penalty, hist)
@@ -452,8 +455,9 @@ class OnnxV3LiteEngine:
                      speaker_emb=None, style=None,   # style: DEPRECATED, ignored
                      use_ref_codes: bool = True,
                      temperature: float = 0.8, top_k: int = 25, top_p: float = 0.95,
-                     max_new_frames: int = 600, chunk_frames: int = 25,
-                     repetition_penalty: float = 1.2, **_kw) -> Generator[np.ndarray, None, None]:
+                     max_new_frames: int = 300, chunk_frames: int = 25,
+                     repetition_penalty: float = 1.2,
+                     repetition_window: int = DEFAULT_REP_WINDOW, **_kw) -> Generator[np.ndarray, None, None]:
         """Native low-latency streaming: yields 48 kHz audio as frames are produced.
 
         Uses the MOSS streaming codec (decode_step), which is bit-exact to the full
@@ -464,7 +468,8 @@ class OnnxV3LiteEngine:
             yield self.infer(phonemes=phonemes, text=text, ref_codes=ref_codes,
                              speaker_emb=speaker_emb, use_ref_codes=use_ref_codes,
                              temperature=temperature, top_k=top_k, top_p=top_p,
-                             max_new_frames=max_new_frames, repetition_penalty=repetition_penalty)
+                             max_new_frames=max_new_frames, repetition_penalty=repetition_penalty,
+                             repetition_window=repetition_window)
             return
         if phonemes is None:
             from vieneu_utils.phonemize_text import phonemize_text_with_emotions
@@ -483,7 +488,7 @@ class OnnxV3LiteEngine:
             past_v = [pre[1 + self.L + i] for i in range(self.L)]
             h = pre[0][:, -1]
             Tprompt = prompt_embeds.shape[1]
-            hist = [set() for _ in range(self.n_vq)] if not math.isclose(repetition_penalty, 1.0) else None
+            hist = RepetitionHistory(self.n_vq, repetition_window) if not math.isclose(repetition_penalty, 1.0) else None
 
         state = self._stream_new_state()
         buffer: List[np.ndarray] = []
