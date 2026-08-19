@@ -154,3 +154,76 @@ def test_extract_speech_ids():
     assert extract_speech_ids(codes_str) == [100, 101, 102]
     assert extract_speech_ids("no speech here") == []
     assert extract_speech_ids("<|speech_abc|>") == []
+
+# --- Gộp chunk vụn (v3) ---
+
+from vieneu_utils.phonemize_text import _merge_short_chunks
+from vieneu_utils.core_utils import _FRAME_CAP_SLACK, max_expected_frames
+
+LONG_A = "Đây là một chunk đủ dài để không bao giờ bị coi là vụn chút nào."
+LONG_B = "Còn đây là một chunk dài khác cũng vượt xa ngưỡng tối thiểu rồi."
+
+
+def test_merge_short_chunks_tiny_line_merges_into_next():
+    """Dòng tiêu đề 1-2 từ dính vào nội dung theo sau, ranh giới para biến mất."""
+    chunks, gaps = _merge_short_chunks(["Chương một.", LONG_A], ["para"], 20)
+    assert chunks == [f"Chương một. {LONG_A}"]
+    assert gaps == []
+
+
+def test_merge_short_chunks_prefers_non_para_boundary():
+    """Có lựa chọn thì gộp qua ranh giới KHÔNG phải ngắt đoạn."""
+    chunks, gaps = _merge_short_chunks(
+        [LONG_A, "Ừ.", LONG_B], ["sentence", "para"], 20
+    )
+    assert chunks == [f"{LONG_A} Ừ.", LONG_B]
+    assert gaps == ["para"]
+
+
+def test_merge_short_chunks_tie_prefers_right():
+    chunks, gaps = _merge_short_chunks(
+        [LONG_A, "Ừ.", LONG_A], ["para", "para"], 20
+    )
+    assert chunks == [LONG_A, f"Ừ. {LONG_A}"]
+    assert gaps == ["para"]
+
+
+def test_merge_short_chunks_cascades_until_big_enough():
+    chunks, gaps = _merge_short_chunks(
+        ["Một.", "Hai.", "Ba."], ["sentence", "sentence"], 20
+    )
+    assert chunks == ["Một. Hai. Ba."]
+    assert gaps == []
+
+
+def test_merge_short_chunks_leaves_long_chunks_alone():
+    chunks, gaps = _merge_short_chunks([LONG_A, LONG_B], ["para"], 20)
+    assert chunks == [LONG_A, LONG_B]
+    assert gaps == ["para"]
+
+
+def test_merge_short_chunks_single_chunk_untouched():
+    chunks, gaps = _merge_short_chunks(["Ừ."], [], 20)
+    assert chunks == ["Ừ."]
+
+
+def test_merge_short_chunks_emotion_token_does_not_count_as_text():
+    """`<|emotion_3|> Dạ.` dài 17 ký tự nhưng chỉ có 1 từ thật -> vẫn là vụn."""
+    chunks, _ = _merge_short_chunks(["<|emotion_3|> Dạ.", LONG_A], ["para"], 20)
+    assert chunks == [f"<|emotion_3|> Dạ. {LONG_A}"]
+
+# --- Trần frame theo độ dài phoneme ---
+
+def test_max_expected_frames_monotonic_and_bounded():
+    short = max_expected_frames("a" * 10)
+    long = max_expected_frames("a" * 300)
+    assert _FRAME_CAP_SLACK < short < long
+    # Chunk dài hết cỡ (max_chars=256 -> phoneme ~300+) phải vượt default 300
+    # để trần không bao giờ bó chunk bình thường.
+    assert long > 300
+
+
+def test_max_expected_frames_ignores_markup():
+    assert max_expected_frames("<en>abc</en>") == max_expected_frames("abc")
+    assert max_expected_frames("<|emotion_1|>xyz") == max_expected_frames("xyz")
+    assert max_expected_frames("") == _FRAME_CAP_SLACK

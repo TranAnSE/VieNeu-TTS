@@ -66,6 +66,26 @@ class PhoneChunk:
 # như liền mạch. Dùng cho đường v3 khi có metadata gap từ splitter.
 V3_GAP_SILENCE = {"para": 0.35, "sentence": 0.18, "minor": 0.04}
 
+# Trần số frame audio hợp lý cho MỘT chunk theo độ dài phoneme — chặn-trên đối
+# xứng với guard chặn-dưới MIN_FRAMES_PER_PHONE=0.25 bên v3_turbo_serve.engine.
+# Đo trên dataset pnnbao-ump/vi-tts-v3-finetune-mix (129,790 rows, 2026-08):
+# frames/ký-tự-phoneme p50=0.53, p99=1.10, p99.9=1.50; trần 24 + 2.0*len phủ
+# 99.9915% rows (11/129,790 vượt). Row rất ngắn có ratio cao vì chi phí cố định
+# (bin len<15: max 25 frames) — phần đó nằm trong slack. Chunk ngắn (1-2 từ) hay
+# bắn trượt stop token rồi "nói thêm" — trần này cắt cụt phần bịa thay vì để
+# chạy hết max_new_frames (300); chunk dài bình thường có trần > 300 nên không
+# bị ảnh hưởng. Markup (<en>…</en>, <|emotion_k|>) chiếm ký tự nhưng không tốn
+# frame nên bị loại trước khi đo.
+MAX_FRAMES_PER_PHONE = 2.0
+_FRAME_CAP_SLACK = 24            # frame trừ hao cho lead-in / chi phí cố định
+_FRAME_MARKUP_RE = re.compile(r"<\|emotion_\d+\|>|</?en>")
+
+
+def max_expected_frames(phonemes: str) -> int:
+    """Số frame TỐI ĐA hợp lý cho chunk có chuỗi ``phonemes`` này."""
+    eff_len = len(_FRAME_MARKUP_RE.sub("", phonemes or ""))
+    return _FRAME_CAP_SLACK + int(np.ceil(MAX_FRAMES_PER_PHONE * eff_len))
+
 
 def gaps_to_silence(gaps: List[str]) -> List[float]:
     """Map list loại-ranh-giới -> list độ dài im lặng (giây) cho ``join_audio_chunks``."""
