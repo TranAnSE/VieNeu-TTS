@@ -215,15 +215,27 @@ def test_merge_short_chunks_emotion_token_does_not_count_as_text():
 # --- Trần frame theo độ dài phoneme ---
 
 def test_max_expected_frames_monotonic_and_bounded():
-    short = max_expected_frames("a" * 10)
-    long = max_expected_frames("a" * 300)
+    short = max_expected_frames("aaa bbb ccc")
+    long = max_expected_frames("aaa bbb ccc " * 30)
     assert _FRAME_CAP_SLACK < short < long
     # Chunk dài hết cỡ (max_chars=256 -> phoneme ~300+) phải vượt default 300
     # để trần không bao giờ bó chunk bình thường.
     assert long > 300
 
 
+def test_max_expected_frames_single_word_hard_cap():
+    """Một từ duy nhất -> chặn cứng ~1 giây (13 frame @ 12.5 fps)."""
+    from vieneu_utils.core_utils import SINGLE_WORD_MAX_FRAMES
+    assert max_expected_frames("tʃˈaː2w.") == SINGLE_WORD_MAX_FRAMES
+    assert max_expected_frames("") == SINGLE_WORD_MAX_FRAMES
+    # Hai từ -> quay lại công thức tuyến tính.
+    assert max_expected_frames("tʃˈaː2w bˈaː6n.") > SINGLE_WORD_MAX_FRAMES
+    # Emotion cue tốn frame thật (cười/thở dài) -> không áp chặn cứng.
+    assert max_expected_frames("<|emotion_1|>tʃˈaː2w.") > SINGLE_WORD_MAX_FRAMES
+    # "Từ" dài bất thường (normalize dính) -> công thức thường lo.
+    assert max_expected_frames("a" * 30) > SINGLE_WORD_MAX_FRAMES
+
+
 def test_max_expected_frames_ignores_markup():
-    assert max_expected_frames("<en>abc</en>") == max_expected_frames("abc")
-    assert max_expected_frames("<|emotion_1|>xyz") == max_expected_frames("xyz")
-    assert max_expected_frames("") == _FRAME_CAP_SLACK
+    assert max_expected_frames("<en>abc def</en>") == max_expected_frames("abc def")
+    assert max_expected_frames("<en>ab cd</en> ef") == max_expected_frames("ab cd ef")

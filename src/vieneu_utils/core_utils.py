@@ -80,11 +80,27 @@ MAX_FRAMES_PER_PHONE = 2.0
 _FRAME_CAP_SLACK = 24            # frame trừ hao cho lead-in / chi phí cố định
 _FRAME_MARKUP_RE = re.compile(r"<\|emotion_\d+\|>|</?en>")
 
+# Codec chạy 12.5 frame/giây. Chunk chỉ có MỘT từ thì công thức tuyến tính vẫn
+# quá hào phóng ("chào" -> 40 frame = 3.2s toàn phần bịa), nên chặn cứng ~1 giây.
+# Không áp khi có emotion cue (tiếng cười/thở dài tốn frame thật), và chỉ áp cho
+# từ có phoneme <= _SINGLE_WORD_MAX_PHONES (một "từ" dài bất thường là do
+# normalize dính, không phải từ thật — để công thức thường lo).
+SINGLE_WORD_MAX_FRAMES = 13      # ~1s @ 12.5 frame/s
+_SINGLE_WORD_MAX_PHONES = 24
+
 
 def max_expected_frames(phonemes: str) -> int:
     """Số frame TỐI ĐA hợp lý cho chunk có chuỗi ``phonemes`` này."""
-    eff_len = len(_FRAME_MARKUP_RE.sub("", phonemes or ""))
-    return _FRAME_CAP_SLACK + int(np.ceil(MAX_FRAMES_PER_PHONE * eff_len))
+    stripped = _FRAME_MARKUP_RE.sub("", phonemes or "")
+    eff_len = len(stripped)
+    cap = _FRAME_CAP_SLACK + int(np.ceil(MAX_FRAMES_PER_PHONE * eff_len))
+    if (
+        len(stripped.split()) <= 1
+        and eff_len <= _SINGLE_WORD_MAX_PHONES
+        and "<|emotion_" not in (phonemes or "")
+    ):
+        cap = min(cap, SINGLE_WORD_MAX_FRAMES)
+    return cap
 
 
 def gaps_to_silence(gaps: List[str]) -> List[float]:
