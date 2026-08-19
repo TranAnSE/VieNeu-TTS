@@ -125,7 +125,7 @@ audio = vieneu.infer("Câu này dùng giọng đã lưu.", voice="Giọng của 
 wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")
 ```
 
-> `denoise`, `add_voice`, and cloning require the PyTorch (GPU) engine; built-in voices work everywhere.
+> `denoise`, `add_voice`, and cloning work on every backend, including the torch-free CPU/ONNX install.
 
 ---
 

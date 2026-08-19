@@ -272,8 +272,9 @@ Get the denoised audio without synthesizing anything (e.g. to inspect or store i
 wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")   # 44.1 kHz mono
 ```
 
-> **Note:** `denoise`, `add_voice`, and voice cloning currently require the PyTorch
-> (GPU) engine. Built-in voices work everywhere.
+> **Note:** `denoise`, `add_voice`, and voice cloning work on every backend — the
+> torch-free CPU/ONNX install included (the whole cloning pipeline runs on
+> onnxruntime + soxr + kaldi-native-fbank).
 
 ---
 

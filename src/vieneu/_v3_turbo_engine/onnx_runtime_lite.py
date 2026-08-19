@@ -7,9 +7,9 @@ MOSS audio codec run in ONNX Runtime; everything else (embeddings, the speaker
 anchor, output heads, sampling, prompt build) is plain NumPy.
 
 Synthesis from a preset / precomputed voice (``speaker_emb`` + ``ref_codes``) is
-fully torch-free. Cloning a fresh reference wav (:meth:`prepare_reference`) also
-needs a denoiser + speaker encoder: the denoiser is torch-free (numpy + ORT); the
-speaker encoder's fbank front-end uses torchaudio, imported lazily only then.
+fully torch-free, and so is cloning a fresh reference wav
+(:meth:`prepare_reference`): the denoiser runs on numpy + ORT and the speaker
+encoder's fbank front-end on soxr + kaldi-native-fbank.
 
 Artifacts (fetched from HF ``<repo>/<onnx_subfolder>``, or a local dir):
   graphs : vieneu_prefill.onnx, vieneu_decode_step.onnx, vieneu_acoustic_cached.onnx
@@ -169,8 +169,7 @@ class OnnxV3LiteEngine:
             self.sess_codec_step = None  # streaming decode unavailable → infer_stream falls back
 
         # ── Speaker encoder + denoiser (voice cloning), from repo root ──────────
-        # Loaded lazily on first clone: the denoiser is torch-free, the speaker
-        # encoder's fbank front-end pulls in torchaudio.
+        # Both torch-free; the speaker encoder is loaded lazily on first clone.
         self.speaker_encoder = None
         self.denoiser = self._load_denoiser()
 

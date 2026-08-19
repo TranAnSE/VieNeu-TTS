@@ -245,7 +245,7 @@ Lấy audio đã khử nhiễu mà không tổng hợp gì (để nghe/lưu lạ
 wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")   # 44.1 kHz mono
 ```
 
-> **Lưu ý:** `denoise`, `add_voice` và voice cloning hiện cần engine PyTorch (GPU). Giọng dựng sẵn chạy ở mọi nơi.
+> **Lưu ý:** `denoise`, `add_voice` và voice cloning chạy trên mọi backend — kể cả bản cài CPU/ONNX không torch (toàn bộ pipeline cloning chạy bằng onnxruntime + soxr + kaldi-native-fbank).
 
 ---
 
