@@ -376,12 +376,17 @@ class OnnxV3LiteEngine:
               ref_audio=None, ref_text=None, ref_phonemes=None,
               temperature: float = 0.8, top_k: int = 25, top_p: float = 0.95,
               max_new_frames: int = 300, repetition_penalty: float = 1.2,
-              repetition_window: int = DEFAULT_REP_WINDOW, **_kw):
+              repetition_window: int = DEFAULT_REP_WINDOW, frame_cap: bool = True, **_kw):
         if ref_codes is None and ref_audio is not None:
             speaker_emb, ref_codes = self.prepare_reference(ref_audio, use_ref_codes=use_ref_codes)
         if phonemes is None:
             from vieneu_utils.phonemize_text import phonemize_text_with_emotions
             phonemes = phonemize_text_with_emotions(text)
+        if frame_cap:
+            # Trần frame theo độ dài phoneme (chống chunk ngắn "nói thêm") — cùng
+            # logic với engine PyTorch, xem core_utils.max_expected_frames.
+            from vieneu_utils.core_utils import max_expected_frames
+            max_new_frames = min(max_new_frames, max_expected_frames(phonemes))
         if not use_ref_codes:
             ref_codes = None
         style_id = self._resolve_style_id()
@@ -456,7 +461,8 @@ class OnnxV3LiteEngine:
                      temperature: float = 0.8, top_k: int = 25, top_p: float = 0.95,
                      max_new_frames: int = 300, chunk_frames: int = 25,
                      repetition_penalty: float = 1.2,
-                     repetition_window: int = DEFAULT_REP_WINDOW, **_kw) -> Generator[np.ndarray, None, None]:
+                     repetition_window: int = DEFAULT_REP_WINDOW,
+                     frame_cap: bool = True, **_kw) -> Generator[np.ndarray, None, None]:
         """Native low-latency streaming: yields 48 kHz audio as frames are produced.
 
         Uses the MOSS streaming codec (decode_step), which is bit-exact to the full
@@ -473,6 +479,9 @@ class OnnxV3LiteEngine:
         if phonemes is None:
             from vieneu_utils.phonemize_text import phonemize_text_with_emotions
             phonemes = phonemize_text_with_emotions(text)
+        if frame_cap:
+            from vieneu_utils.core_utils import max_expected_frames
+            max_new_frames = min(max_new_frames, max_expected_frames(phonemes))
         if not use_ref_codes:
             ref_codes = None
         style_id = self._resolve_style_id()
