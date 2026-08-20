@@ -124,7 +124,7 @@ vieneu = Vieneu()
 
 # 1. Giọng dựng sẵn theo tên — không cần audio mẫu
 print("🔊 Đang sinh giọng nói...")
-audio = vieneu.infer("Xin chào, đây là VieNeu-TTS.", voice="Trúc Ly")
+audio = vieneu.infer("Xin chào, đây là VieNeu-TTS.", voice="Adam")
 vieneu.save(audio, "output.wav")
 print("✅ Đã lưu vào output.wav")
 
@@ -147,7 +147,7 @@ for label, voice_id in voices:
 #     "Nếu thấy hữu ích, các bạn nhớ để lại một lượt thích và chia sẻ video này cho mọi người nhé!",
 # ] * 10   # 30 câu — đủ lấp đầy batch để thấy rõ sức mạnh throughput của GPU
 # t0 = time.time()
-# audios = vieneu.infer_batch(texts, voice="Minh Đức")
+# audios = vieneu.infer_batch(texts, voice="Adam")
 # elapsed = time.time() - t0
 # total_audio = sum(len(a) for a in audios) / 48_000
 # print(f"⚡ {len(texts)} câu | audio {total_audio:.1f}s | thời gian {elapsed:.1f}s | RTF {elapsed/total_audio:.3f}")
@@ -162,7 +162,7 @@ v3 Turbo hỗ trợ **streaming theo frame**: audio ra sau ~300 ms và generator
 ```python
 from vieneu import Vieneu
 vieneu = Vieneu(backend="onnx")                      # ép ONNX/CPU — đường dành cho streaming (int8)
-for chunk in vieneu.infer_stream("Xin chào các bạn!", voice="Trúc Ly"):
+for chunk in vieneu.infer_stream("Xin chào các bạn!", voice="Adam"):
     play(chunk)                                   # np.float32 @ 48 kHz — phát/ghi ngay khi có
 ```
 
@@ -187,10 +187,10 @@ uv run python -m apps.web_stream                  # → http://localhost:8001
 
 ```python
 # Code cũ — vẫn chạy, nhưng `style` bị bỏ qua
-audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Đức", style="tin_tuc")
+audio = vieneu.infer("Bản tin sáng nay.", voice="Adam", style="tin_tuc")
 
 # Code mới — chọn chất giọng/cách đọc bằng chính giọng mẫu hoặc clip reference
-audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Đức")
+audio = vieneu.infer("Bản tin sáng nay.", voice="Adam")
 ```
 
 ### Tag cảm xúc (thử nghiệm)
@@ -198,7 +198,7 @@ audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Đức")
 Chèn trực tiếp trong văn bản: `[cười]`, `[thở dài]`, `[hắng giọng]`.
 
 ```python
-audio = vieneu.infer("Nghe hay quá đi [cười]. Để mình nói tiếp [hắng giọng].", voice="Trúc Ly")
+audio = vieneu.infer("Nghe hay quá đi [cười]. Để mình nói tiếp [hắng giọng].", voice="Adam")
 ```
 
 > [!TIP]
