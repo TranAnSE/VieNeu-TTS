@@ -77,6 +77,57 @@ def test_pack_sentences_splits_oversized_sentence_at_commas():
     assert len(chunks) > 1
     assert all(len(c) <= 60 for c in chunks)
 
+# --- Cắt cưỡng bức theo từ: ưu tiên từ nối ---
+
+def test_forced_word_cut_prefers_connector():
+    """Mảnh không dấu câu dài quá trần: cắt TRƯỚC từ nối, không chặt sát trần."""
+    sent = "x" * 18 + " yy và " + "z" * 18 + " ww"
+    chunks = pack_sentences_into_chunks([sent], max_chars=40)
+    assert chunks == ["x" * 18 + " yy", "và " + "z" * 18 + " ww"]
+
+def test_forced_word_cut_does_not_split_inside_connector_pair():
+    """"sau khi" là MỘT từ nối: cắt trước cả cặp, không bao giờ "sau | khi"."""
+    sent = "x" * 18 + " yy sau khi " + "z" * 14
+    chunks = pack_sentences_into_chunks([sent], max_chars=30)
+    assert chunks == ["x" * 18 + " yy", "sau khi " + "z" * 14]
+
+def test_forced_word_cut_no_dangling_connector_before_pair():
+    """"và sau đó": cắt phải lùi về trước "và", không bỏ rơi "và" cuối mảnh trái."""
+    sent = "x" * 20 + " và sau đó " + "z" * 20
+    chunks = pack_sentences_into_chunks([sent], max_chars=32)
+    assert chunks == ["x" * 20, "và sau đó " + "z" * 20]
+
+def test_forced_word_cut_never_splits_pair_even_without_natural_cut():
+    """Từ nối quá gần đầu (dưới min_left) -> cắt sát trần, nhưng vẫn không được
+    lọt giữa cặp chồng lấn kiểu "cho | đến khi"."""
+    from vieneu_utils.core_utils import _tokenize_keep_en, _conn_key, _CONN_PAIRS
+    sent = ("cho đến khi " * 30).strip()
+    chunks = pack_sentences_into_chunks([sent], max_chars=40)
+    assert " ".join(chunks).split() == sent.split()
+    for left, right in zip(chunks, chunks[1:]):
+        lt, rt = _tokenize_keep_en(left), _tokenize_keep_en(right)
+        assert (_conn_key(lt[-1]), _conn_key(rt[0])) not in _CONN_PAIRS
+
+def test_forced_word_cut_connector_too_early_is_ignored():
+    """Từ nối làm mảnh trái < max_chars//2 thì bỏ qua, cắt sát trần như cũ."""
+    sent = "x" * 10 + " và " + "y" * 30
+    chunks = pack_sentences_into_chunks([sent], max_chars=40)
+    assert chunks[0] == "x" * 10 + " và"
+
+def test_forced_word_cut_no_connector_falls_back():
+    """Không có từ nối: giữ nguyên hành vi cắt theo từ, không mất chữ."""
+    words = ["a" * 15, "b" * 15, "c" * 15, "d" * 15]
+    sent = " ".join(words)
+    chunks = pack_sentences_into_chunks([sent], max_chars=35)
+    assert all(len(c) <= 35 for c in chunks)
+    assert " ".join(chunks).split() == words
+
+def test_forced_word_cut_keeps_en_token_intact():
+    sent = "x" * 30 + " và <en>hello world</en> " + "y" * 20
+    chunks = pack_sentences_into_chunks([sent], max_chars=40)
+    assert any("<en>hello world</en>" in c for c in chunks)
+    assert not any("<en>hello" in c and "world</en>" not in c for c in chunks)
+
 def test_chunking_cuts_at_sentence_boundary_not_mid_quote():
     """Regression: cắt ở ranh giới câu, không đẻ ra mảnh vụn mở đầu bằng dấu phẩy."""
     text = (

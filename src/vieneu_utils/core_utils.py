@@ -218,11 +218,87 @@ def split_into_sentences(text: str) -> List[str]:
     return sentences
 
 
+# ─── Cắt mảnh dài không còn dấu ngắt: ưu tiên từ nối ─────────────────────────
+_CONN_WORDS = frozenset(
+    "và nhưng hoặc song rồi nên vì nếu khi để do bởi".split()
+)
+# Cặp hai từ là MỘT từ nối: cắt trước cả cặp. Cặp cũng là luật CHẶN — không cắt
+# lọt vào giữa cặp ("sau | khi") hay ngay sau từ đầu cặp ("cho | đến khi").
+_CONN_PAIRS = frozenset([
+    ("sau", "khi"), ("trước", "khi"), ("trong", "khi"), ("mỗi", "khi"),
+    ("đến", "khi"), ("tới", "khi"), ("cho", "nên"), ("cho", "đến"),
+    ("bởi", "vì"), ("nếu", "như"), ("tuy", "nhiên"), ("thế", "nhưng"),
+    ("vì", "vậy"), ("vì", "thế"), ("do", "đó"), ("sau", "đó"),
+])
+_CONN_STRIP = "\"'“”‘’()[]«»…"
+
+
+def _conn_key(token: str) -> str:
+    return token.strip(_CONN_STRIP).lower()
+
+
+def _natural_cut(words: List[str], start: int, end: int, min_left: int) -> Optional[int]:
+    """Tìm ``j`` trong ``(start, end)`` sao cho cắt TRƯỚC ``words[j]`` rơi đúng
+    từ nối. Quét lùi từ sát trần về (ưu tiên chunk đầy nhất), dừng khi mảnh trái
+    ngắn hơn ``min_left``. Trả ``None`` nếu không có điểm cắt tự nhiên."""
+    left = sum(len(w) for w in words[start:end]) + (end - start - 1)
+    for j in range(end - 1, start, -1):
+        left -= len(words[j]) + 1        # độ dài mảnh trái nếu cắt trước words[j]
+        if left < min_left:
+            return None
+        key, prev = _conn_key(words[j]), _conn_key(words[j - 1])
+        if (prev, key) in _CONN_PAIRS or prev in _CONN_WORDS:
+            # Giữa một cặp ("sau | khi") hoặc ngay sau từ nối khác ("và | sau
+            # đó" bỏ rơi "và" cuối mảnh trái) — điểm đúng là j-1, quét tiếp.
+            continue
+        nxt = _conn_key(words[j + 1]) if j + 1 < len(words) else ""
+        if key in _CONN_WORDS or (key, nxt) in _CONN_PAIRS:
+            return j
+    return None
+
+
+def _split_long_part(part: str, max_chars: int) -> List[str]:
+    """Cắt một mảnh dài quá ``max_chars`` (không còn dấu ngắt nào để bám) thành
+    các mảnh <= ``max_chars`` theo TỪ, ưu tiên cắt trước từ nối (``_CONN_WORDS``/
+    ``_CONN_PAIRS``) thay vì chặt sát trần giữa cụm.
+
+    Điểm cắt tự nhiên chỉ được nhận khi mảnh trái >= ``max_chars // 2`` — lùi
+    sâu hơn thì chunk vụn ra, mất cái lợi của chunk đầy; không tìm thấy thì cắt
+    sát trần như trước. Token ``<en>...</en>`` luôn nguyên vẹn."""
+    words = _tokenize_keep_en(part)
+    min_left = max_chars // 2
+    pieces: List[str] = []
+    start = 0
+    while start < len(words):
+        end, length = start, 0
+        while end < len(words):
+            add = length + 1 + len(words[end]) if end > start else len(words[end])
+            if end > start and add > max_chars:
+                break
+            length, end = add, end + 1
+        if end < len(words):             # còn phần dư -> buộc phải cắt
+            cut = _natural_cut(words, start, end, min_left)
+            if cut is not None:
+                end = cut
+            else:
+                # Cắt sát trần cũng KHÔNG được lọt giữa cặp từ nối ("cho | đến
+                # khi") — lùi qua cả chuỗi cặp chồng lấn, chấp nhận mảnh non
+                # trần / bỏ qua min_left, miễn mảnh trái còn >= 1 từ.
+                while end > start + 1 and (
+                    _conn_key(words[end - 1]), _conn_key(words[end])
+                ) in _CONN_PAIRS:
+                    end -= 1
+        pieces.append(" ".join(words[start:end]))
+        start = end
+    return pieces
+
+
 def pack_sentences_into_chunks(sentences: List[str], max_chars: int = 256) -> List[str]:
     """Đóng gói các CÂU đã cho thành chunk <= ``max_chars`` (greedy, giữ thứ tự).
 
     Câu dài hơn ``max_chars`` mới bị cắt phụ — trước theo dấu ngắt trong câu
-    (``,;:``), sau cùng mới theo từ.
+    (``,;:``), sau cùng mới theo từ (ưu tiên cắt trước từ nối, xem
+    :func:`_split_long_part`).
     """
     final_chunks: List[str] = []
     buffer = ""
@@ -249,14 +325,9 @@ def pack_sentences_into_chunks(sentences: List[str], max_chars: int = 256) -> Li
                         final_chunks.append(buffer)
                     buffer = part
                     if len(buffer) > max_chars:
-                        words, current = _tokenize_keep_en(buffer), ""
-                        for word in words:
-                            if current and len(current) + 1 + len(word) > max_chars:
-                                final_chunks.append(current)
-                                current = word
-                            else:
-                                current = (current + ' ' + word) if current else word
-                        buffer = current
+                        pieces = _split_long_part(buffer, max_chars)
+                        final_chunks.extend(pieces[:-1])
+                        buffer = pieces[-1] if pieces else ""
         else:
             if buffer and len(buffer) + 1 + len(sentence) > max_chars:
                 final_chunks.append(buffer)
