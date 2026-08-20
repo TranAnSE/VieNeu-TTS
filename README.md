@@ -133,7 +133,7 @@ vieneu = Vieneu() # On a GPU machine you can still switch to ONNX/CPU if you pre
 print("🔊 Generating speech...")
 
 start_time = time.time()
-audio = vieneu.infer("[cười] Trời ơi, cái giọng nó tự nhiên mà nó mượt mà dã man, nghe không khác gì người thật luôn. Giờ thì tha hồ mà quẩy content với cả kho giọng nói đa dạng, đủ mọi sắc thái biểu cảm. Mọi người bật loa lên rồi cùng trải nghiệm thử với mình nhé!", voice="Adam")
+audio = vieneu.infer("[cười] Trời ơi, cái giọng nó tự nhiên mà nó mượt mà dã man, nghe không khác gì người thật luôn. Giờ thì tha hồ mà quẩy content với cả kho giọng nói đa dạng, đủ mọi sắc thái biểu cảm. Mọi người bật loa lên rồi cùng trải nghiệm thử với mình nhé!", voice="Phạm Tuyên")
 elapsed_time = time.time() - start_time
 
 vieneu.save(audio, "output.wav")
