@@ -4,6 +4,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord&logoColor=white)](https://discord.gg/yJt8kzjzWZ)
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1b9PO-lcGZX9pEkEwQmu8MfhSnjxKrALW?usp=sharing)
+[![Hugging Face VieNeu-TTS-v3-Turbo](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-v3--Turbo-red)](https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo)
 [![Hugging Face VieNeu-TTS-v2](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-v2-blue)](https://huggingface.co/pnnbao-ump/VieNeu-TTS-v2)
 [![Hugging Face VieNeu-TTS](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-v1-orange)](https://huggingface.co/pnnbao-ump/VieNeu-TTS)
 
@@ -87,11 +88,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 SDK `vieneu` **mặc định dùng VieNeu-TTS v3 Turbo (48 kHz)**. Bản cài tối giản **không cần torch**: trên CPU mọi thứ chạy bằng **ONNX Runtime** (PyTorch không bao giờ được import), còn trên máy CUDA nó tự chuyển sang engine PyTorch — nơi suy luận được **batch tự động** (cùng API, không đổi code).
 
-> ⚡ **Trên CPU, backbone chạy `int8` theo mặc định** — nhanh ~1.6× và nhẹ ~4× so với fp32, chất giọng vẫn giữ nguyên. Cần chất lượng tối đa? Truyền `Vieneu(precision="fp32")` (chậm hơn trên CPU). `precision` chỉ ảnh hưởng đường CPU/ONNX; trên GPU nó bị bỏ qua (PyTorch).
+> ⚡ **Trên CPU, backbone chạy `fp32` theo mặc định** (chất lượng tối đa). Cần nhanh hơn? Truyền `Vieneu(precision="int8")` — nhanh ~1.6× và nhẹ ~4×, nhưng cần CPU hỗ trợ VNNI (AVX-512 VNNI / AVX-VNNI); trên CPU đời cũ int8 có thể cho audio méo/vô nghĩa. `precision` chỉ ảnh hưởng đường CPU/ONNX; trên GPU nó bị bỏ qua (PyTorch).
 >
 > ```python
-> vieneu = Vieneu()                    # backbone int8 (mặc định, nhanh nhất trên CPU)
-> vieneu = Vieneu(precision="fp32")    # backbone fp32 (chất lượng tối đa, chậm hơn trên CPU)
+> vieneu = Vieneu()                    # backbone fp32 (mặc định, chất lượng tối đa)
+> vieneu = Vieneu(precision="int8")    # backbone int8 (nhanh hơn trên CPU có VNNI)
 > ```
 
 ### Bắt đầu nhanh
@@ -350,7 +351,7 @@ docker run --gpus all \
 | **VieNeu-TTS v3 Turbo** *(mặc định)* | ONNX (CPU) / PyTorch (GPU) | CPU/GPU | 48 kHz | Giọng dựng sẵn, clone giọng, cảm xúc |
 
 > [!TIP]
-> Trên **CPU**, backbone chạy `int8` mặc định (nhanh nhất); dùng `Vieneu(precision="fp32")` nếu cần chất lượng tối đa. Trên **GPU (CUDA)**, suy luận **tự động batch** — cùng API, không đổi code.
+> Trên **CPU**, backbone chạy `fp32` mặc định (chất lượng tối đa); dùng `Vieneu(precision="int8")` nếu cần nhanh hơn (cần CPU có VNNI). Trên **GPU (CUDA)**, suy luận **tự động batch** — cùng API, không đổi code.
 
 ---
 

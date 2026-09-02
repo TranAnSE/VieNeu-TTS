@@ -13,7 +13,7 @@
 **VieNeu-TTS-v2** is the next generation of on-device Vietnamese TTS, featuring **10,000+ hours** of bilingual training, **instant voice cloning**, and a dedicated **Podcast/Conversation** mode.
 
 > [!NOTE]
-> **🆕 VieNeu-TTS v3 Turbo (early access) is out for preview!**
+> **🆕 VieNeu-TTS v3 Turbo is officially released!**
 > A brand-new architecture **designed and trained from scratch by Phạm Nguyễn Ngọc Bảo** (codec: [MOSS-Audio-Tokenizer-Nano](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano); phonemizer: [sea-g2p](https://github.com/pnnbao97/sea-g2p)):
 > - **48 kHz** high-fidelity audio (up from 24 kHz).
 > - **Built-in default voices** — stable and consistent, no reference clip needed.
@@ -22,7 +22,7 @@
 > - **Batched generation** (batch size up to 32), including a multi-speaker **Conversation** mode that batches the whole script regardless of speaker.
 > - **Instant voice cloning** from a 3–8s clip, with automatic reference denoising.
 >
-> Try it in the Web UI (backbone **"VieNeu-TTS-v3-Turbo (Thử nghiệm)"**) or the SDK (`Vieneu(mode="v3turbo")`). The **full v3** release is coming in the next few weeks.
+> Try it in the Web UI (backbone **"VieNeu-TTS-v3-Turbo"**) or the SDK (`Vieneu(mode="v3turbo")`, the default).
 
 > [!IMPORTANT]
 > **🚀 VieNeu-TTS-v2 is here!**
@@ -103,7 +103,7 @@ The `vieneu` SDK **defaults to VieNeu-TTS v3 Turbo (48 kHz)**. The minimal insta
 ### Quick Start
 
 **CPU (default)** — torch-free, runs v3 Turbo via ONNX Runtime. Most users want this:
-> ⚡**On CPU the backbone runs `int8` by default** — ~1.6× faster and ~4× smaller than fp32, with voice quality preserved. Want maximum fidelity instead? Pass `Vieneu(precision="fp32")` (slower on CPU). `precision` only affects the CPU/ONNX path; on GPU it's ignored (PyTorch).
+> ⚡**On CPU the backbone runs `fp32` by default** (maximum fidelity). Need more speed? Pass `Vieneu(precision="int8")` — ~1.6× faster and ~4× smaller, but it requires a CPU with VNNI (AVX-512 VNNI / AVX-VNNI); on older CPUs int8 can produce garbled audio. `precision` only affects the CPU/ONNX path; on GPU it's ignored (PyTorch).
 
 ```bash
 pip install vieneu
@@ -375,7 +375,7 @@ docker run --gpus all \
 
 | Model | Format | Device | Bilingual | Features | Speed |
 |---|---|---|---|---|---|
-| **VieNeu-TTS-v3-Turbo** *(early access)* | PyTorch/ONNX | **GPU/CPU** | ✅ | **48 kHz, Default voices, Cloning, Emotion cues, Conversation** | **Fast (batched)** |
+| **VieNeu-TTS-v3-Turbo** | PyTorch/ONNX | **GPU/CPU** | ✅ | **48 kHz, Default voices, Cloning, Emotion cues, Conversation** | **Fast (batched)** |
 | **VieNeu-TTS-v2** | PyTorch | **GPU** | ✅ | **Podcast, En-Vi CS** | **Fast (LMDeploy)** |
 | **VieNeu-v2-CPU** | GGUF/ONNX | **CPU/Edge** | ✅ | **Podcast, En-Vi CS** | **Extreme Speed** |
 | **VieNeu-v2-Turbo** | GGUF/ONNX | **CPU/Edge** | ✅ | Lightweight En-Vi | **Ultra Fast** |
@@ -388,7 +388,7 @@ docker run --gpus all \
 - [x] **VieNeu-TTS-v2**: Full high-fidelity bilingual architecture with **Podcast Mode** and **Voice Cloning**.
 - [x] **VieNeu-Codec**: Optimized neural codec for Vietnamese (ONNX).
 - [x] **Turbo Voice Cloning**: Bringing instant cloning to the lightweight Turbo engine.
-- [x] **VieNeu-TTS v3 Turbo (early access)**: New from-scratch 48 kHz architecture — built-in default voices (speaker tokens), experimental emotion cues, batched generation & multi-speaker conversation.
+- [x] **VieNeu-TTS v3 Turbo**: New from-scratch 48 kHz architecture — built-in default voices (speaker tokens), experimental emotion cues, batched generation & multi-speaker conversation.
 - [ ] **VieNeu-TTS v3 (full release)**: Complete v3 with finalized quality, stable emotion control, more default voices & streaming server.
 - [ ] **Mobile SDK**: Official support for Android/iOS deployment.
 

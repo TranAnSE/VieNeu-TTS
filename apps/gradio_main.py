@@ -74,7 +74,22 @@ except ImportError:
 
 filtered_backbones = {}
 
-# VieNeu-TTS v3 Turbo (early access) — PyTorch, runs on both CPU and GPU.
+
+def _watermark_available() -> bool:
+    """True only when the Resemble `resemble-perth` watermarker can be used.
+
+    The PyPI package literally named `perth` is an unrelated threading helper;
+    the SDK's `_init_watermarker` falls back to *no* watermark in that case, so
+    the UI must not claim the audio is watermarked (issue #191).
+    """
+    try:
+        import perth  # provided by `resemble-perth` (pip install vieneu[watermark])
+        return getattr(perth, "PerthImplicitWatermarker", None) is not None
+    except Exception:
+        return False
+
+
+# VieNeu-TTS v3 Turbo — PyTorch, runs on both CPU and GPU.
 if not HAS_GPU:
     filtered_backbones["VieNeu-TTS-v3-Turbo (int8)"] = {
         "repo": "pnnbao-ump/VieNeu-TTS-v3-Turbo",
@@ -1771,6 +1786,8 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
             <a href="https://huggingface.co/pnnbao-ump/VieNeu-TTS" target="_blank" class="model-card-link">VieNeu-TTS</a>
             <span>•</span>
             <a href="https://huggingface.co/pnnbao-ump/VieNeu-TTS-v2" target="_blank" class="model-card-link">VieNeu-TTS-v2</a>
+            <span>•</span>
+            <a href="https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo" target="_blank" class="model-card-link">VieNeu-TTS-v3-Turbo</a>
         </div>
         <div class="model-card-item">
             <strong>Repository:</strong>
@@ -1880,7 +1897,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                     <div class="warning-banner-item">
                         <strong>🐆 Hệ máy GPU</strong>
                         <div class="warning-banner-content">
-                            <b>VieNeu-TTS-v3-Turbo (early access)</b> đã được phát hành để dùng thử trước, đã hỗ trợ các tag cảm xúc `[cười]` `[hắng giọng]` `[thở dài]`, tuy nhiên những tính năng này vẫn đang được thử nghiệm và chưa thực sự ổn định, có thể sẽ xảy ra lỗi không mong muốn, nếu có lỗi các bạn hãy thông báo với chúng tôi tại: https://discord.com/invite/yJt8kzjzWZ. Trong trường hợp bạn cần sự ổn định hãy sử dụng <b>VieNeu-TTS-v2 (GPU)</b>. 
+                            <b>VieNeu-TTS-v3-Turbo</b> — 48kHz, giọng mặc định ổn định, Voice Cloning và hỗ trợ các tag cảm xúc `[cười]` `[hắng giọng]` `[thở dài]` (riêng tag cảm xúc vẫn đang thử nghiệm). Nếu gặp lỗi hãy báo với chúng tôi tại: https://discord.com/invite/yJt8kzjzWZ.
                         </div>
                     </div>
                     <div class="warning-banner-item" style="background: #dcfce7; border-color: #86efac;">
@@ -1897,11 +1914,10 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
             """)
 
             gr.Markdown(
-                "🆕 **VieNeu-TTS-v3-Turbo (early access)** đã được phát hành để **dùng thử trước** — "
-                "48kHz, **hỗ trợ Voice Cloning** (tính năng clone chỉ có từ **v3** trở lên; v1/v2 không hỗ trợ). "
-                "Bản **v3 đầy đủ** sẽ ra mắt trong **vài tuần tới**.\n\n"
-                "🎭 v3 Turbo đã **hỗ trợ các tag cảm xúc** `[cười]` `[hắng giọng]` `[thở dài]` "
-                "(chèn trực tiếp vào văn bản) — nhưng tính năng này **đang thử nghiệm và chưa thực sự ổn định**."
+                "🆕 **VieNeu-TTS-v3-Turbo** đã **phát hành chính thức** — "
+                "48kHz, giọng mặc định ổn định, **hỗ trợ Voice Cloning** (tính năng clone chỉ có từ **v3** trở lên; v1/v2 không hỗ trợ).\n\n"
+                "🎭 v3 Turbo **hỗ trợ các tag cảm xúc** `[cười]` `[hắng giọng]` `[thở dài]` "
+                "(chèn trực tiếp vào văn bản) — riêng tính năng này vẫn **đang thử nghiệm**."
             )
 
             btn_load = gr.Button("🔄 Tải Model", variant="primary")
@@ -1962,20 +1978,33 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                                         value=True, label="🔇 Denoise audio mẫu",
                                         info="Khử nhiễu nền + chuẩn hoá audio mẫu trước khi clone (khuyến nghị). Audio dài hơn 8 giây sẽ được cắt ngắn.",
                                     )
-                                    # v3 clones from audio only — the reference transcript box
-                                    # is hidden for v3 (toggled by on_backbone_change).
-                                    custom_text = gr.Textbox(label="Nội dung audio mẫu - vui lòng gõ đúng nội dung của audio mẫu - kể cả dấu câu vì model rất nhạy cảm với dấu câu (.,?!)", visible=_default_is_v2_gpu)
-                                    gr.Examples(
-                                        examples=[
-                                            [os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "audio_ref", "example.wav"), "Ví dụ 2. Tính trung bình của dãy số."],
-                                            [os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "audio_ref", "example_2.wav"), "Trên thực tế, các nghi ngờ đã bắt đầu xuất hiện."],
-                                            [os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "audio_ref", "example_3.wav"), "Cậu có nhìn thấy không?"],
-                                            [os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "audio_ref", "example_4.wav"), "Tết là dịp mọi người háo hức đón chào một năm mới với nhiều hy vọng và mong ước."]
-                                        ],
-                                        inputs=[custom_audio, custom_text],
-                                        label="Ví dụ mẫu để thử nghiệm clone giọng"
-                                    )
-                                    
+                                    # v3 clones from audio only — the reference transcript box AND
+                                    # its transcript-bearing example table live in one group that is
+                                    # hidden for v3 (toggled by on_backbone_change). gr.Examples keeps
+                                    # its own Dataset copy of the columns, so hiding only the textbox
+                                    # would leave the transcript column on screen (issue #191).
+                                    _ref_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "audio_ref")
+                                    _ref_examples = [
+                                        [os.path.join(_ref_dir, "example.wav"), "Ví dụ 2. Tính trung bình của dãy số."],
+                                        [os.path.join(_ref_dir, "example_2.wav"), "Trên thực tế, các nghi ngờ đã bắt đầu xuất hiện."],
+                                        [os.path.join(_ref_dir, "example_3.wav"), "Cậu có nhìn thấy không?"],
+                                        [os.path.join(_ref_dir, "example_4.wav"), "Tết là dịp mọi người háo hức đón chào một năm mới với nhiều hy vọng và mong ước."],
+                                    ]
+                                    with gr.Group(visible=_default_is_v2_gpu) as v2_ref_text_group:
+                                        custom_text = gr.Textbox(label="Nội dung audio mẫu - vui lòng gõ đúng nội dung của audio mẫu - kể cả dấu câu vì model rất nhạy cảm với dấu câu (.,?!)")
+                                        gr.Examples(
+                                            examples=_ref_examples,
+                                            inputs=[custom_audio, custom_text],
+                                            label="Ví dụ mẫu để thử nghiệm clone giọng"
+                                        )
+                                    # v3: audio-only examples (no transcript column).
+                                    with gr.Group(visible=not _default_is_v2_gpu) as v3_ref_examples_group:
+                                        gr.Examples(
+                                            examples=[[row[0]] for row in _ref_examples],
+                                            inputs=[custom_audio],
+                                            label="Ví dụ mẫu để thử nghiệm clone giọng (v3 chỉ cần audio)"
+                                        )
+
                                     gr.Markdown("""
                                     **💡 Mẹo nhỏ:** Nếu kết quả Zero-shot Voice Cloning chưa như ý, bạn hãy cân nhắc **Finetune (LoRA)** để đạt chất lượng tốt nhất. 
                                     Hướng dẫn chi tiết có tại file: `finetune/README.md` hoặc xem trên [GitHub](https://github.com/pnnbao97/VieNeu-TTS/tree/main/finetune).
@@ -2059,7 +2088,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                     use_batch = gr.Checkbox(
                         value=True, 
                         label="⚡ Batch Processing",
-                        info="Xử lý nhiều đoạn cùng lúc (chỉ áp dụng khi sử dụng GPU và đã cài đặt LMDeploy)"
+                        info="Gộp nhiều đoạn vào một lần forward. v3 Turbo: cần GPU CUDA (không cần LMDeploy). v1/v2: cần GPU + LMDeploy. Trên CPU/ONNX tuỳ chọn này không có tác dụng."
                     )
                     max_batch_size_run = gr.Slider(
                         minimum=1,
@@ -2119,7 +2148,12 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                     visible=False,
                     elem_classes="download-btn"
                 )
-                gr.Markdown("<div style='text-align: center; color: #64748b; font-size: 0.8rem;'>🔒 Audio được đóng dấu bản quyền ẩn (Watermarker) để bảo mật và định danh AI.</div>")
+                # Only claim a watermark when the real watermarker (resemble-perth) is importable —
+                # otherwise the SDK silently skips watermarking (issue #191).
+                gr.Markdown(
+                    "<div style='text-align: center; color: #64748b; font-size: 0.8rem;'>🔒 Audio được đóng dấu bản quyền ẩn (Perth Watermarker) để định danh AI.</div>",
+                    visible=_watermark_available(),
+                )
         
         codec_select.change(
             on_codec_change, 
@@ -2197,7 +2231,8 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                 gr.update(visible=clone_ok),   # tab_custom — clone tab (v3 + v2 GPU)
                 gr.update(value=32 if is_v3 else 4),  # max_batch_size_run — v3 batches chunks
                 gr.update(visible=not is_v3),  # use_lmdeploy_cb — irrelevant for v3 (PyTorch, no LMDeploy)
-                gr.update(visible=is_v2_gpu),  # custom_text — only v2 needs a reference transcript
+                gr.update(visible=is_v2_gpu),  # v2_ref_text_group — transcript box + transcript examples (v2 only)
+                gr.update(visible=not is_v2_gpu),  # v3_ref_examples_group — audio-only examples
                 clone_info_update,             # clone_info_md
                 gr.update(value=256),  # max_chars_chunk_slider
             )
@@ -2215,7 +2250,8 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                 tab_custom,
                 max_batch_size_run,
                 use_lmdeploy_cb,
-                custom_text,
+                v2_ref_text_group,
+                v3_ref_examples_group,
                 clone_info_md,
                 max_chars_chunk_slider,
             ]
