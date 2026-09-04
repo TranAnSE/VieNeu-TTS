@@ -33,14 +33,6 @@
 >
 > Try it in the Web UI (backbone **"VieNeu-TTS-v3-Turbo"**) or the SDK (`Vieneu(mode="v3turbo")`, the default).
 
-## ✨ Key Features
-- **10,000+ Hours Training**: Trained on a massive English-Vietnamese dataset for human-like prosody.
-- **Bilingual (En-Vi) Code-switching**: Powered by [**sea-g2p**](https://github.com/pnnbao97/sea-g2p) for high-fidelity pronunciation and seamless transitions between Vietnamese and English.
-- **Podcast & Conversation Mode**: Multi-speaker dialogue support with automatic character detection.
-- **Instant Voice Cloning**: Clone any voice with just **3-5 seconds** of reference audio.
-- **Ultra-Fast Performance**: Optimized for **GPU (LMDeploy)** and **CPU (GGUF/ONNX)**.
-- **Production-Ready**: High-quality 24 kHz waveform generation, fully offline.
-
 [<img width="600" height="595" alt="VieNeu-TTS Demo" src="https://github.com/user-attachments/assets/021f6671-2d7f-4635-91fb-88b2ab0ddbcd" />](https://github.com/user-attachments/assets/021f6671-2d7f-4635-91fb-88b2ab0ddbcd)
 
 ## 📌 Table of Contents
