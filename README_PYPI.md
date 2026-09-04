@@ -8,7 +8,7 @@
 ## ✨ Key Features
 - **v3 Turbo, 48 kHz** — high-fidelity, natural Vietnamese speech (default).
 - **Torch-free on CPU** — minimal install runs on ONNX Runtime; PyTorch is never imported.
-- **fp32 backbone by default on CPU** — maximum fidelity. Use `Vieneu(precision="int8")` for ~1.6× speed & ~4× smaller download (needs a VNNI-capable CPU).
+- **fp32 backbone by default on CPU** — maximum fidelity. Use `Vieneu(precision="int8")` for ~1.6× speed & ~4× smaller download (needs a VNNI-capable CPU). Need it much faster, or on a phone / ARM board? See [v3 Nano (preview)](#v3-nano) — `Vieneu(mode="v3nano")`, lower quality but ~3× faster than Turbo fp32.
 - **Built-in default voices** — call them by name, no reference clip needed.
 - **Instant voice cloning** — clone any voice from 3–5s of audio.
 - **Emotion cues** *(experimental)* — drop `[cười]`, `[thở dài]`, `[hắng giọng]` into the text.
@@ -50,6 +50,7 @@ from vieneu import Vieneu
 # On CPU the backbone runs fp32 by default (max quality); pass precision="int8" for speed (VNNI CPU).
 vieneu = Vieneu()                    # fp32 backbone (default, max quality)
 # vieneu = Vieneu(precision="int8")  # int8 backbone (faster on CPU with VNNI, ~4x smaller)
+# vieneu = Vieneu(mode="v3nano")     # v3 Nano (preview): fastest, lower quality — see "v3 Nano" below
 # 💡 On a GPU machine you can still switch to ONNX/CPU if you prefer: Vieneu(backend="onnx")
 
 # 1. Built-in voice by name — no reference needed
@@ -127,6 +128,7 @@ wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")
 
 > `denoise`, `add_voice`, and cloning work on every backend, including the torch-free CPU/ONNX install — except **v3 Nano** (preset voices only).
 
+<a id="v3-nano"></a>
 ### v3 Nano (preview) — edge devices / weak CPUs only
 
 v3 Turbo stays the default. `Vieneu(mode="v3nano")` loads a 48M-parameter flow model (ONNX, CPU, 24 kHz) for machines where Turbo is too slow: on the same desktop CPU it runs at **RTF 0.22** (16 steps) or **0.11** (`steps=8, sway=-1`) vs 0.37 for Turbo int8 and 0.62 for Turbo fp32. It is **lower quality than Turbo, especially on English and code-switched text**, ships **6 preset voices only (no cloning)**, and has no frame-level streaming.

@@ -98,6 +98,8 @@ The `vieneu` SDK **defaults to VieNeu-TTS v3 Turbo (48 kHz)**. The minimal insta
 
 **CPU (default)** — torch-free, runs v3 Turbo via ONNX Runtime. Most users want this:
 > ⚡**On CPU the backbone runs `fp32` by default** (maximum fidelity). Need more speed? Pass `Vieneu(precision="int8")` — ~1.6× faster and ~4× smaller, but it requires a CPU with VNNI (AVX-512 VNNI / AVX-VNNI); on older CPUs int8 can produce garbled audio. `precision` only affects the CPU/ONNX path; on GPU it's ignored (PyTorch).
+>
+> 🪶 **Still too slow, or deploying on a phone / ARM board?** Try **[VieNeu-TTS v3 Nano (preview)](#v3-nano)** — `Vieneu(mode="v3nano")`, ~3× faster than Turbo fp32 on CPU (RTF 0.11–0.22 on a desktop CPU), but **noticeably lower quality** (especially English / bilingual), 24 kHz, 6 preset voices only. Details and caveats in the [v3 Nano section](#v3-nano) below.
 
 ```bash
 pip install vieneu
@@ -269,6 +271,7 @@ wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")   # 44.1 kHz mono
 > torch-free CPU/ONNX install included (the whole cloning pipeline runs on
 > onnxruntime + soxr + kaldi-native-fbank). The one exception is **v3 Nano** below (preset voices only).
 
+<a id="v3-nano"></a>
 ### v3 Nano (preview) — for edge devices / weak CPUs only 🪶
 
 > [!WARNING]

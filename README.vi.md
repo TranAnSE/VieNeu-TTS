@@ -90,6 +90,8 @@ SDK `vieneu` **mặc định dùng VieNeu-TTS v3 Turbo (48 kHz)**. Bản cài t�
 
 > ⚡ **Trên CPU, backbone chạy `fp32` theo mặc định** (chất lượng tối đa). Cần nhanh hơn? Truyền `Vieneu(precision="int8")` — nhanh ~1.6× và nhẹ ~4×, nhưng cần CPU hỗ trợ VNNI (AVX-512 VNNI / AVX-VNNI); trên CPU đời cũ int8 có thể cho audio méo/vô nghĩa. `precision` chỉ ảnh hưởng đường CPU/ONNX; trên GPU nó bị bỏ qua (PyTorch).
 >
+> 🪶 **Vẫn quá chậm, hoặc cần deploy trên điện thoại / board ARM?** Dùng **[VieNeu-TTS v3 Nano (preview)](#v3-nano)** — `Vieneu(mode="v3nano")`, nhanh hơn Turbo fp32 ~3× trên CPU (RTF 0.11–0.22 trên CPU desktop), nhưng **chất lượng kém hơn rõ rệt** (nhất là tiếng Anh / song ngữ), 24 kHz, chỉ 6 giọng có sẵn. Xem chi tiết và các hạn chế ở [mục v3 Nano](#v3-nano) bên dưới.
+>
 > ```python
 > vieneu = Vieneu()                    # backbone fp32 (mặc định, chất lượng tối đa)
 > vieneu = Vieneu(precision="int8")    # backbone int8 (nhanh hơn trên CPU có VNNI)
@@ -248,6 +250,7 @@ wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")   # 44.1 kHz mono
 
 > **Lưu ý:** `denoise`, `add_voice` và voice cloning chạy trên mọi backend — kể cả bản cài CPU/ONNX không torch (toàn bộ pipeline cloning chạy bằng onnxruntime + soxr + kaldi-native-fbank). Ngoại lệ duy nhất là **v3 Nano** bên dưới (chỉ giọng có sẵn).
 
+<a id="v3-nano"></a>
 ### v3 Nano (preview) — chỉ dành cho edge device / máy CPU yếu 🪶
 
 > [!WARNING]
@@ -391,7 +394,7 @@ docker run --gpus all \
 | **VieNeu-TTS v3 Nano** *(preview, máy yếu)* | ONNX (CPU) | CPU yếu / edge | 24 kHz | 6 giọng dựng sẵn, cảm xúc — **không clone, chất lượng thấp hơn (nhất là tiếng Anh / song ngữ)**, RTF 0.11–0.22 trên desktop |
 
 > [!TIP]
-> Trên **CPU**, backbone chạy `fp32` mặc định (chất lượng tối đa); dùng `Vieneu(precision="int8")` nếu cần nhanh hơn (cần CPU có VNNI). Trên **GPU (CUDA)**, suy luận **tự động batch** — cùng API, không đổi code.
+> Trên **CPU**, backbone chạy `fp32` mặc định (chất lượng tối đa); dùng `Vieneu(precision="int8")` nếu cần nhanh hơn (cần CPU có VNNI). Trên **GPU (CUDA)**, suy luận **tự động batch** — cùng API, không đổi code. Máy quá yếu hoặc deploy trên điện thoại: xem [v3 Nano (preview)](#v3-nano).
 
 ---
 
