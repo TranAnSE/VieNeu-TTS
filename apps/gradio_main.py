@@ -89,22 +89,35 @@ def _watermark_available() -> bool:
         return False
 
 
-# VieNeu-TTS v3 Turbo — PyTorch, runs on both CPU and GPU.
-if not HAS_GPU:
-    filtered_backbones["VieNeu-TTS-v3-Turbo (int8)"] = {
-        "repo": "pnnbao-ump/VieNeu-TTS-v3-Turbo",
-        "precision": "int8",
-        "supports_streaming": False,
-        "description": "🆕 v3 Turbo (int8) — 48kHz, TỐI ƯU CHO CPU: nhanh nhất (backbone nén int8, ~3x/frame, nhẹ 4x). Khuyến nghị cho máy CPU. Giọng mặc định dùng speaker token; Voice Cloning clone từ audio mẫu; tag cảm xúc [cười]/[hắng giọng]/[thở dài] (thử nghiệm)."
-    }
+# VieNeu-TTS v3 Turbo — the DEFAULT on both CPU and GPU (first entry = default in the UI).
+# CPU runs the fp32 ONNX graphs (maximum quality); GPU runs PyTorch.
 filtered_backbones["VieNeu-TTS-v3-Turbo"] = {
     "repo": "pnnbao-ump/VieNeu-TTS-v3-Turbo",
     "precision": "fp32",
     "supports_streaming": False,
     "description": (
-        "🆕 v3 Turbo — 48kHz. Giọng mặc định dùng speaker token (ổn định hơn); Voice Cloning "
+        "🆕 v3 Turbo — 48kHz, bản mặc định. Giọng mặc định dùng speaker token (ổn định hơn); Voice Cloning "
         "clone từ audio mẫu; tag cảm xúc [cười]/[hắng giọng]/[thở dài] (thử nghiệm)."
-        + ("" if HAS_GPU else " Trên CPU đây là bản chất-lượng-tối-đa (chậm hơn bản int8).")
+        + ("" if HAS_GPU else " Trên CPU chạy ONNX fp32 (chất lượng tối đa).")
+    )
+}
+if not HAS_GPU:
+    filtered_backbones["VieNeu-TTS-v3-Turbo (int8)"] = {
+        "repo": "pnnbao-ump/VieNeu-TTS-v3-Turbo",
+        "precision": "int8",
+        "supports_streaming": False,
+        "description": "v3 Turbo (int8) — 48kHz, backbone nén int8: nhanh hơn bản fp32 trên CPU có AVX-512/AVX-VNNI (CPU cũ không có VNNI có thể bị méo tiếng). Cùng giọng, cloning và tag cảm xúc như bản mặc định."
+    }
+# VieNeu-TTS v3 Nano (PREVIEW) — ONNX/CPU only. NOT the default: a 48M-param flow model for
+# edge devices (Android, weak CPUs). Listed last so Turbo stays the first/default entry.
+filtered_backbones["VieNeu-TTS-v3-Nano (preview)"] = {
+    "repo": "pnnbao-ump/VieNeu-TTS-v3-Nano",
+    "supports_streaming": False,
+    "description": (
+        "🪶 v3 Nano (PREVIEW, đang thử nghiệm) — 24kHz, model flow 48M tham số, chạy RẤT NHANH, dành cho "
+        "edge device (Android) hoặc CPU yếu. Chất lượng KÉM HƠN NHIỀU so với v3 Turbo, nhất là tiếng Anh và "
+        "câu song ngữ; chỉ 6 giọng có sẵn, KHÔNG clone giọng; còn nhiều thiếu sót. Chỉ dùng khi thực sự cần "
+        "tốc độ hoặc deploy trên điện thoại."
     )
 }
 
@@ -187,6 +200,8 @@ def _supports_cloning(backbone_choice: str) -> bool:
     preset-only.
     """
     c = (backbone_choice or "").lower()
+    if "nano" in c:
+        return False   # v3 Nano ships preset voices only (no codec encoder → no cloning)
     return "v3" in c or c == "vieneu-tts-v2 (gpu)"
 
 def get_model_status_message() -> str:
@@ -586,7 +601,16 @@ def load_model(backbone_choice: str, codec_choice: str, device_choice: str,
             print(f"   Backbone: {backbone_config['repo']} on {backbone_device}")
             print(f"   Codec: {codec_config['repo']} on {codec_device}")
             
-            if "v3-Turbo" in backbone_choice:
+            if "v3-Nano" in backbone_choice:
+                # VieNeu v3 Nano: ONNX/CPU only (torch-free), preset voices only. Chosen
+                # explicitly by the user for weak CPUs — never auto-selected.
+                print("   🪶 Mode: v3 Nano (ONNX/CPU, 24 kHz, preset voices only)")
+                tts = Vieneu(
+                    mode="v3nano",
+                    backbone_repo=backbone_config["repo"],
+                    hf_token=custom_hf_token,
+                )
+            elif "v3-Turbo" in backbone_choice:
                 # VieNeu v3 Turbo. CPU → ONNX Runtime; GPU → PyTorch. The backend is
                 # auto-selected from the device inside Vieneu(mode="v3turbo"); ONNX
                 # graphs are fetched from the model repo's onnx/ subfolder.
@@ -926,7 +950,11 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
         # to single-utterance generation on CPU / 1 chunk / batching disabled.
         if "v3" in (current_backbone or "").lower():
             _t0 = time.time()
-            yield None, "⏳ Đang tổng hợp (v3 Turbo)..."
+            # v3 Nano shares this branch: its engine.infer(phonemes=, speaker_emb=, ref_codes=)
+            # has the same shape (ref_codes = the voice's style tokens) and its device is
+            # always CPU, so it takes the sequential path below.
+            v3_label = "v3 Nano" if "nano" in (current_backbone or "").lower() else "v3 Turbo"
+            yield None, f"⏳ Đang tổng hợp ({v3_label})..."
             sr_v3 = getattr(tts, "sample_rate", 48000)
             try:
                 from vieneu_utils.phonemize_text import phonemize_text_with_emotions
@@ -980,7 +1008,7 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                         if _STOP_EVENT.is_set():
                             yield None, "⏹️ Đã dừng tạo giọng nói."
                             return
-                        yield None, f"⏳ v3 Turbo: Đang xử lý đoạn {i + 1}/{total_v3}..."
+                        yield None, f"⏳ {v3_label}: Đang xử lý đoạn {i + 1}/{total_v3}..."
                         ph = phonemize_text_with_emotions(chunk)
                         chunk_wav = tts.engine.infer(
                             phonemes=ph, speaker_emb=v3_speaker_emb, ref_codes=ref_codes,
@@ -998,13 +1026,13 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                             avg = sum(chunk_durations) / len(chunk_durations)
                             eta = avg * (total_v3 - done)
                             yield None, (
-                                f"⏳ v3 Turbo: Đã xong {done}/{total_v3} đoạn "
+                                f"⏳ {v3_label}: Đã xong {done}/{total_v3} đoạn "
                                 f"(ước tính còn lại: {_format_duration(eta)})... "
                                 f"đang xử lý đoạn {done + 1}/{total_v3}"
                             )
                     wav = join_audio_chunks(v3_wavs, sr=sr_v3, silence_ps=gaps_to_silence(v3_gaps))
             except Exception as e:
-                yield None, f"❌ Lỗi tổng hợp (v3 Turbo): {str(e)}"
+                yield None, f"❌ Lỗi tổng hợp ({v3_label}): {str(e)}"
                 return
             if wav is None or len(wav) == 0:
                 yield None, "❌ Không sinh được audio nào."
@@ -1014,7 +1042,7 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                 out_path_v3 = tmp.name
             _dt = time.time() - _t0
             _spd = f", Tốc độ: {len(wav)/sr_v3/_dt:.2f}x realtime" if _dt > 0 else ""
-            yield out_path_v3, f"✅ Hoàn tất! (v3 Turbo, Thời gian: {_dt:.2f}s{_spd})"
+            yield out_path_v3, f"✅ Hoàn tất! ({v3_label}, Thời gian: {_dt:.2f}s{_spd})"
             cleanup_gpu_memory()
             return
         # ========================== end v3 TURBO BRANCH ======================
@@ -1809,10 +1837,9 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
         with gr.Group():
             with gr.Row():
                 # --- BACKBONE & CODEC DEFAULT LOGIC ---
-                # GPU users default to VieNeu-TTS-v3-Turbo (GPU); CPU-only users get v3 Turbo
-                # (the only CPU backbone). v3 (GPU) is registered solely when HAS_GPU.
-                # int8 là entry đầu tiên → mặc định trên cả CPU lẫn GPU (trên GPU dùng
-                # PyTorch nên int8/fp32 như nhau; trên CPU int8 nhanh nhất).
+                # "VieNeu-TTS-v3-Turbo" (fp32) is the first entry on both CPU and GPU, so it is
+                # the default everywhere. The int8 Turbo build (CPU only) and v3 Nano (preview)
+                # are opt-in choices listed after it.
                 default_backbone = list(BACKBONE_CONFIGS.keys())[0]
                 
                 # Default parameters based on backbone
@@ -1903,7 +1930,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                     <div class="warning-banner-item" style="background: #dcfce7; border-color: #86efac;">
                         <strong style="color: #15803d;">🐢 Hệ máy CPU</strong>
                         <div class="warning-banner-content" style="color: #166534;">
-                            Máy <b>CPU</b> nên dùng bản <b>VieNeu-TTS-v3-Turbo (int8)</b> để tốc độ tối đa. Chuyển sang <b>VieNeu-TTS-v3-Turbo</b> nếu cần chất lượng cao hơn (nhưng chậm hơn trên CPU).
+                            Máy <b>CPU</b> dùng bản mặc định <b>VieNeu-TTS-v3-Turbo</b> (ONNX, chất lượng tối đa). Bản <b>VieNeu-TTS-v3-Nano (preview)</b> chạy rất nhanh, dành cho edge device như Android hoặc CPU yếu, nhưng <b>chất lượng kém hơn nhiều</b> so với Turbo (nhất là tiếng Anh, song ngữ) — chỉ dùng khi thực sự cần tốc độ hoặc deploy trên điện thoại. Nano đang trong quá trình thử nghiệm nên còn nhiều thiếu sót.
                         </div>
                     </div>
                 </div>

@@ -125,7 +125,16 @@ audio = vieneu.infer("Câu này dùng giọng đã lưu.", voice="Giọng của 
 wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")
 ```
 
-> `denoise`, `add_voice`, and cloning work on every backend, including the torch-free CPU/ONNX install.
+> `denoise`, `add_voice`, and cloning work on every backend, including the torch-free CPU/ONNX install — except **v3 Nano** (preset voices only).
+
+### v3 Nano (preview) — edge devices / weak CPUs only
+
+v3 Turbo stays the default. `Vieneu(mode="v3nano")` loads a 48M-parameter flow model (ONNX, CPU, 24 kHz) for machines where Turbo is too slow: on the same desktop CPU it runs at **RTF 0.22** (16 steps) or **0.11** (`steps=8, sway=-1`) vs 0.37 for Turbo int8 and 0.62 for Turbo fp32. It is **lower quality than Turbo, especially on English and code-switched text**, ships **6 preset voices only (no cloning)**, and has no frame-level streaming.
+
+```python
+tts = Vieneu(mode="v3nano")
+audio = tts.infer("Xin chào, mình là giọng đọc của VieNeu Nano.", voice="Adam")   # 24 kHz
+```
 
 ---
 
@@ -134,6 +143,7 @@ wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")
 | Model | Engine | Device | Sample Rate | Features |
 |---|---|---|---|---|
 | **VieNeu-TTS v3 Turbo** *(default)* | ONNX (CPU) / PyTorch (GPU) | CPU/GPU | 48 kHz | Default voices, cloning, emotion cues |
+| **VieNeu-TTS v3 Nano** *(preview, weak CPUs)* | ONNX (CPU) | weak CPU / edge | 24 kHz | 6 preset voices, emotion cues — no cloning, weaker English / En-Vi |
 
 ---
 
