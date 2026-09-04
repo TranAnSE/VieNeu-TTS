@@ -10,7 +10,16 @@
 
 <img width="1087" height="710" alt="image" src="https://github.com/user-attachments/assets/5534b5db-f30b-4d27-8a35-80f1cf6e5d4d" />
 
-**VieNeu-TTS-v2** is the next generation of on-device Vietnamese TTS, featuring **10,000+ hours** of bilingual training, **instant voice cloning**, and a dedicated **Podcast/Conversation** mode.
+**VieNeu-TTS** is the next generation of on-device Vietnamese TTS, featuring **10,000+ hours** of bilingual training, **instant voice cloning**, and a dedicated **Podcast/Conversation** mode.
+
+> [!IMPORTANT]
+> **🚀 VieNeu-TTS v4 — available on [vieneu.io](https://www.vieneu.io)**
+>
+> VieNeu-TTS v4 delivers **near-original voice cloning fidelity**, allowing a short reference clip to be reproduced with very high speaker similarity.
+>
+> Due to the strength of its voice-cloning capabilities and the potential for misuse, **v4 is proprietary and will not be open-sourced**. It is available exclusively through the **VieNeu API / vieneu.io**.
+>
+> **VieNeu-TTS v3 Turbo remains the latest open-source version available in this repository.** Future open-source releases, including potential v3.x updates, may also be published here.
 
 > [!NOTE]
 > **🆕 VieNeu-TTS v3 Turbo is officially released!**
