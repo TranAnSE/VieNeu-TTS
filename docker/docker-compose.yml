@@ -1,14 +1,13 @@
 x-base-config: &base-config
   volumes:
     - ./:/workspace
-    - huggingface_cache:/root/.cache/huggingface
+    - huggingface_cache:/home/app/.cache/huggingface
     - ./output_audio:/workspace/output_audio
-    - uv_cache:/root/.cache/uv
   env_file:
     - path: .env
       required: false
   environment:
-    - HF_HOME=${HF_HOME:-/root/.cache/huggingface}
+    - HF_HOME=${HF_HOME:-/home/app/.cache/huggingface}
     - PYTHONUNBUFFERED=1
     - PORT=${PORT:-7860}
     - GRADIO_SERVER_PORT=${GRADIO_SERVER_PORT:-7860}
@@ -31,7 +30,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.cpu
     container_name: vieneu-tts-cpu
-    command: ["uv", "run", "--no-sync", "apps/gradio_main.py"]
+    command: ["python", "apps/gradio_main.py"]
 
   # ========================================================
   # GPU profile — Web UI, v3 Turbo on CUDA (PyTorch) + v3 Nano
@@ -45,7 +44,7 @@ services:
       dockerfile: docker/Dockerfile.gpu
       target: dev
     container_name: vieneu-tts-gpu-dev
-    command: ["uv", "run", "--no-sync", "apps/gradio_main.py"]
+    command: ["python", "apps/gradio_main.py"]
     deploy:
       resources:
         reservations:
@@ -90,4 +89,3 @@ services:
 
 volumes:
   huggingface_cache:
-  uv_cache:
