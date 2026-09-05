@@ -155,6 +155,7 @@ gpu = [
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]   # finetune/tests runs in its own process (see tests/test_finetune_lora.py)
 pythonpath = ["src"]
 
 [project.scripts]
