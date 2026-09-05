@@ -10,22 +10,28 @@
 
 <img width="1087" height="710" alt="image" src="https://github.com/user-attachments/assets/5534b5db-f30b-4d27-8a35-80f1cf6e5d4d" />
 
-**VieNeu-TTS-v2** là thế hệ tiếp theo của mô hình chuyển đổi văn bản thành giọng nói (TTS) tiếng Việt chạy trên thiết bị, hỗ trợ **10.000+ giờ dữ liệu** huấn luyện song ngữ, **clone giọng nói tức thì**, và chế độ **Podcast/Hội thoại** chuyên dụng.
+**VieNeu-TTS** là thế hệ tiếp theo của mô hình chuyển văn bản thành giọng nói (TTS) tiếng Việt chạy trên thiết bị: **10.000+ giờ dữ liệu** huấn luyện song ngữ, **clone giọng tức thì**, và chế độ **Podcast/Hội thoại** chuyên dụng.
 
 > [!IMPORTANT]
-> **🚀 VieNeu-TTS-v2 đã ra mắt!**
-> Kiến trúc song ngữ chất lượng cao (high-fidelity) hiện đã sẵn sàng với:
-> - **10.000+ Giờ dữ liệu:** Độ tự nhiên vượt trội trong cả tiếng Anh và tiếng Việt.
-> - **Chế độ Podcast & Đối thoại:** Hỗ trợ đa người nói với các sắc thái biểu cảm.
-> - **Zero-shot Cloning:** Clone bất kỳ giọng nói nào chỉ trong 3-5 giây trên tất cả các biến thể v2.
+> **🦜 VieNeu-TTS v4 — đã có trên [vieneu.io](https://www.vieneu.io)**
+>
+> VieNeu-TTS v4 clone giọng với độ trung thực **gần như bản gốc**: chỉ cần một clip ngắn là tái tạo được giọng với độ giống rất cao.
+>
+> Vì khả năng clone quá mạnh và nguy cơ bị lạm dụng, **v4 là bản độc quyền, không mã nguồn mở**. v4 chỉ có qua **VieNeu API / vieneu.io**.
+>
+> **VieNeu-TTS v3 Turbo vẫn là bản mã nguồn mở mới nhất trong repo này.** Các bản mở tiếp theo, kể cả v3.x, cũng sẽ được phát hành ở đây.
 
-## ✨ Tính năng nổi bật
-- **Huấn luyện 10.000+ giờ**: Được huấn luyện trên tập dữ liệu Anh-Việt khổng lồ cho ngữ điệu giống hệt con người.
-- **Song ngữ (En-Vi) Code-switching**: Chuyển đổi ngôn ngữ mượt mà ngay trong câu.
-- **Chế độ Podcast & Hội thoại**: Hỗ trợ đối thoại đa người nói với khả năng tự động nhận diện nhân vật.
-- **Clone giọng nói tức thì**: Clone bất kỳ giọng nói nào chỉ với **3-5 giây** âm thanh mẫu.
-- **Hiệu suất cực nhanh**: Được tối ưu hóa cho **GPU (LMDeploy)** và **CPU (GGUF/ONNX)**.
-- **Sẵn sàng cho sản xuất**: Tạo âm thanh chất lượng cao 24 kHz, hoạt động hoàn toàn offline.
+> [!NOTE]
+> **🦜 VieNeu-TTS v3 Turbo đã chính thức ra mắt!**
+> Kiến trúc hoàn toàn mới, **do Phạm Nguyễn Ngọc Bảo thiết kế và huấn luyện từ đầu** (codec: [MOSS-Audio-Tokenizer-Nano](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano); phiên âm: [sea-g2p](https://github.com/pnnbao97/sea-g2p)):
+> - Âm thanh **48 kHz** chất lượng cao (trước đây 24 kHz).
+> - **Giọng dựng sẵn** — ổn định, nhất quán, không cần clip mẫu.
+> - **Phong cách đọc tự nhiên** ở mọi nơi — phong cách đi theo giọng mẫu (tham số `style` đã bỏ, truyền vào cũng bị bỏ qua).
+> - **Tag cảm xúc / phi ngôn từ** *(thử nghiệm)*: chèn `[cười]`, `[thở dài]`, `[hắng giọng]` thẳng vào văn bản.
+> - **Sinh theo lô** (batch tới 32), gồm chế độ **Hội thoại** nhiều người nói batch cả kịch bản bất kể người nói.
+> - **Clone giọng tức thì** từ clip 3–8 giây, tự khử nhiễu clip mẫu.
+>
+> Dùng thử trong Web UI (backbone **"VieNeu-TTS-v3-Turbo"**) hoặc SDK (`Vieneu(mode="v3turbo")`, là mặc định).
 
 [<img width="600" height="595" alt="VieNeu-TTS Demo" src="https://github.com/user-attachments/assets/021f6671-2d7f-4635-91fb-88b2ab0ddbcd" />](https://github.com/user-attachments/assets/021f6671-2d7f-4635-91fb-88b2ab0ddbcd)
 
@@ -66,15 +72,15 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
      >
      > ⚡ **Để CPU chạy nhanh nhất, hãy cài bằng `uv sync` — đừng dùng `pip install`.** `uv sync` dựng lại đúng môi trường đã khóa (lockfile) với bản ONNX Runtime đã tối ưu, nhờ đó đạt tốc độ tối đa ngay từ đầu.
      >
-     > 🍎 **Người dùng macOS: cũng dùng lựa chọn này.** Với v3 Turbo, đường ONNX không-torch chạy trên CPU *nhanh hơn* bản MPS/PyTorch (`--group gpu`), nên hãy ưu tiên `uv sync` để đạt tốc độ cao nhất trên Apple Silicon.
+     > 🍎 **Người dùng macOS: cũng dùng lựa chọn này.** Với v3 Turbo, đường ONNX không-torch chạy trên CPU *nhanh hơn* bản MPS/PyTorch (`--extra cuda`), nên hãy ưu tiên `uv sync` để đạt tốc độ cao nhất trên Apple Silicon.
      ```bash
      uv sync
      ```
    - **Lựa chọn 2: GPU** — **v3 Turbo chạy trên GPU (PyTorch)**
-     > 💡 *Yêu cầu GPU NVIDIA CUDA (CUDA ≥ 12.8) hoặc Apple Silicon MPS. Khuyến nghị cài [NVIDIA Toolkit](https://developer.nvidia.com/cuda-downloads). Thêm bộ PyTorch để **v3 Turbo chạy trên GPU** — trên CUDA suy luận được **batch tự động** (cùng API, không đổi code).*
+     > 💡 *Yêu cầu GPU NVIDIA CUDA (CUDA ≥ 12.8). Khuyến nghị cài [NVIDIA Toolkit](https://developer.nvidia.com/cuda-downloads). Extra `cuda` chỉ thêm torch + transformers để **v3 Turbo chạy trên GPU** — trên CUDA suy luận được **batch tự động** (cùng API, không đổi code). Các backend v1/v2 cũ (LMDeploy, llama-cpp) nằm ở `uv sync --group gpu`.*
 
      ```bash
-     uv sync --group gpu
+     uv sync --extra cuda
      ```
 
 3. **Khởi chạy Giao diện Web:**
@@ -103,7 +109,7 @@ SDK `vieneu` **mặc định dùng VieNeu-TTS v3 Turbo (48 kHz)**. Bản cài t�
 
 > ⚡ **Trên CPU, backbone chạy `fp32` theo mặc định** (chất lượng tối đa). Cần nhanh hơn? Truyền `Vieneu(precision="int8")` — nhanh ~1.6× và nhẹ ~4×, nhưng cần CPU hỗ trợ VNNI (AVX-512 VNNI / AVX-VNNI); trên CPU đời cũ int8 có thể cho audio méo/vô nghĩa. `precision` chỉ ảnh hưởng đường CPU/ONNX; trên GPU nó bị bỏ qua (PyTorch).
 >
-> 🪶 **Vẫn quá chậm, hoặc cần deploy trên điện thoại / board ARM?** Dùng **[VieNeu-TTS v3 Nano (preview)](#v3-nano)** — `Vieneu(mode="v3nano")`, nhanh hơn Turbo fp32 ~3× trên CPU (RTF 0.11–0.22 trên CPU desktop), nhưng **chất lượng kém hơn rõ rệt** (nhất là tiếng Anh / song ngữ), 24 kHz, chỉ 11 giọng có sẵn. Xem chi tiết và các hạn chế ở [mục v3 Nano](#v3-nano) bên dưới.
+> 🪶 **Vẫn quá chậm, hoặc cần deploy trên điện thoại / board ARM?** Dùng **[VieNeu-TTS v3 Nano (preview)](#v3-nano)** — `Vieneu(mode="v3nano")`, nhanh hơn Turbo fp32 ~3× trên CPU (RTF 0.11–0.22 trên CPU desktop), nhưng **chất lượng kém hơn rõ rệt** (nhất là tiếng Anh / song ngữ), 24 kHz, 11 giọng có sẵn + clone giọng. Xem chi tiết và các hạn chế ở [mục v3 Nano](#v3-nano) bên dưới.
 >
 > ```python
 > vieneu = Vieneu()                    # backbone fp32 (mặc định, chất lượng tối đa)
@@ -117,7 +123,7 @@ SDK `vieneu` **mặc định dùng VieNeu-TTS v3 Turbo (48 kHz)**. Bản cài t�
 pip install vieneu
 ```
 
-**GPU (CUDA)** — chỉ khi bạn có GPU NVIDIA. Tự cài bản PyTorch CUDA **trước** (không có extra `[gpu]`). Trên CUDA, batch tự bật — cùng API, không đổi code:
+**GPU (CUDA)** — chỉ khi bạn có GPU NVIDIA. Trên Linux `pip install "vieneu[cuda]"` là đủ (torch trên PyPI đã kèm CUDA); trên Windows cài torch CUDA **trước** như dưới. Trên CUDA, batch tự bật — cùng API, không đổi code:
 
 ```bash
 pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
@@ -190,6 +196,14 @@ uv run python -m apps.web_stream                  # → http://localhost:8001
 
 > Engine chia chunk thích ứng (chunk đầu ~320 ms cho độ trễ thấp, rồi phình tới ~2 s khi đã dư lead). Vì RTF < 1 nên lead chỉ tăng dần → player prebuffer ~300 ms là dư, không underrun.
 
+#### Giọng có sẵn
+
+v3 Turbo đi kèm **23 giọng dựng sẵn** phủ **3 miền** (Bắc, Trung, Nam), đủ giới tính và tính cách đọc:
+
+- **Miền Bắc**: Minh Đức, Phạm Tuyên, Trúc Ly, Mai Anh, Quỳnh Anh, Xuân Vĩnh, Anh Khôi, Mạnh Dũng, Minh Quân, …
+- **Miền Trung**: Quang Sơn, Ngọc Trân
+- **Miền Nam**: Adam *(mặc định)*, Thái Sơn, Thùy Dung, Mỹ Duyên, …
+
 ### Phong cách đọc — **đã bỏ (deprecated)** ⚠️
 
 > [!WARNING]
@@ -261,7 +275,7 @@ Lấy audio đã khử nhiễu mà không tổng hợp gì (để nghe/lưu lạ
 wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")   # 44.1 kHz mono
 ```
 
-> **Lưu ý:** `denoise`, `add_voice` và voice cloning chạy trên mọi backend — kể cả bản cài CPU/ONNX không torch (toàn bộ pipeline cloning chạy bằng onnxruntime + soxr + kaldi-native-fbank). Ngoại lệ duy nhất là **v3 Nano** bên dưới (chỉ giọng có sẵn).
+> **Lưu ý:** `denoise`, `add_voice` và voice cloning chạy trên mọi backend — kể cả bản cài CPU/ONNX không torch (toàn bộ pipeline cloning chạy bằng onnxruntime + soxr + kaldi-native-fbank). **v3 Nano** bên dưới clone theo đúng cách này (các đồ thị clone tải ở lần dùng đầu).
 
 <a id="v3-nano"></a>
 ### v3 Nano (preview) — chỉ dành cho edge device / máy CPU yếu 🪶
@@ -417,10 +431,14 @@ Model merge giữ nguyên toàn bộ API của v3 Turbo (clone, preset, streamin
 
 ## 🔬 5. Tổng quan mô hình <a name="backbones"></a>
 
-| Model | Engine | Thiết bị | Sample Rate | Tính năng |
-|---|---|---|---|---|
-| **VieNeu-TTS v3 Turbo** *(mặc định)* | ONNX (CPU) / PyTorch (GPU) | CPU/GPU | 48 kHz | Giọng dựng sẵn, clone giọng, cảm xúc |
-| **VieNeu-TTS v3 Nano** *(preview, máy yếu)* | ONNX (CPU) | CPU yếu / edge | 24 kHz | 11 giọng dựng sẵn, clone giọng, cảm xúc — **chất lượng thấp hơn (nhất là tiếng Anh / song ngữ)**, RTF 0.11–0.22 trên desktop |
+| Model | Định dạng | Thiết bị | Song ngữ | Tính năng | Tốc độ |
+|---|---|---|---|---|---|
+| **VieNeu-TTS-v3-Turbo** *(mặc định)* | PyTorch/ONNX | **GPU/CPU** | ✅ | **48 kHz, giọng dựng sẵn, clone giọng, tag cảm xúc, hội thoại** | **Nhanh (batch)** |
+| **VieNeu-TTS-v3-Nano** *(preview)* | ONNX | **CPU yếu / edge** | ⚠️ yếu | 24 kHz, 11 giọng dựng sẵn, clone giọng, tag cảm xúc — **chất lượng thấp hơn (nhất là tiếng Anh / Anh-Việt)** | **Nhanh nhất trên CPU (RTF 0.11–0.22 desktop)** |
+| **VieNeu-TTS-v2** | PyTorch | **GPU** | ✅ | **Podcast, Anh-Việt CS** | **Nhanh (LMDeploy)** |
+| **VieNeu-v2-CPU** | GGUF/ONNX | **CPU/Edge** | ✅ | **Podcast, Anh-Việt CS** | **Cực nhanh** |
+| **VieNeu-v2-Turbo** | GGUF/ONNX | **CPU/Edge** | ✅ | Anh-Việt gọn nhẹ | **Siêu nhanh** |
+| **VieNeu-TTS (v1)** | PyTorch | GPU/CPU | ❌ | Ổn định (chỉ tiếng Việt) | Thường |
 
 > [!TIP]
 > Trên **CPU**, backbone chạy `fp32` mặc định (chất lượng tối đa); dùng `Vieneu(precision="int8")` nếu cần nhanh hơn (cần CPU có VNNI). Trên **GPU (CUDA)**, suy luận **tự động batch** — cùng API, không đổi code. Máy quá yếu hoặc deploy trên điện thoại: xem [v3 Nano (preview)](#v3-nano).
@@ -432,6 +450,8 @@ Model merge giữ nguyên toàn bộ API của v3 Turbo (clone, preset, streamin
 - [x] **VieNeu-TTS-v2**: Kiến trúc song ngữ chất lượng cao đầy đủ với **Chế độ Podcast** và **Clone giọng nói**.
 - [x] **VieNeu-Codec**: Neural codec tối ưu cho tiếng Việt (ONNX).
 - [x] **Turbo Voice Cloning**: Mang tính năng clone giọng nói tức thì lên engine Turbo siêu nhẹ.
+- [x] **VieNeu-TTS v3 Turbo**: Kiến trúc 48 kHz mới huấn luyện từ đầu — giọng dựng sẵn (speaker token), tag cảm xúc thử nghiệm, sinh theo lô & hội thoại nhiều người nói.
+- [ ] **VieNeu-TTS v3 (bản đầy đủ)**: Hoàn thiện v3 với chất lượng chốt, điều khiển cảm xúc ổn định, thêm giọng dựng sẵn & server streaming.
 - [ ] **Mobile SDK**: Hỗ trợ chính thức cho việc triển khai trên Android/iOS.
 
 ---
@@ -460,7 +480,13 @@ Model merge giữ nguyên toàn bộ API của v3 Turbo (clone, preset, streamin
 
 ## 🌟 Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=pnnbao97/VieNeu-TTS&type=Date)](https://star-history.com/#pnnbao97/VieNeu-TTS&Date)
+<a href="https://github.com/pnnbao97/VieNeu-TTS/stargazers">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pnnbao97/star-charts/main/charts/pnnbao97/VieNeu-TTS/dark.svg" />
+   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/pnnbao97/star-charts/main/charts/pnnbao97/VieNeu-TTS/light.svg" />
+   <img alt="Star History Chart" src="https://raw.githubusercontent.com/pnnbao97/star-charts/main/charts/pnnbao97/VieNeu-TTS/light.svg" />
+ </picture>
+</a>
 
 ---
 
@@ -476,6 +502,6 @@ Cảm ơn tất cả những người tuyệt vời đã đóng góp cho dự á
 
 ## 🙏 Lời cảm ơn
 
-Dự án này sử dụng [neucodec](https://huggingface.co/neuphonic/neucodec) để giải mã âm thanh và [sea-g2p](https://github.com/pnnbao97/sea-g2p) để chuẩn hóa văn bản và phiên âm.
+Dự án này sử dụng [neucodec](https://huggingface.co/neuphonic/neucodec) (v1/v2) và [MOSS-Audio-Tokenizer-Nano](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano) (v3 Turbo) để mã hoá âm thanh, và [sea-g2p](https://github.com/pnnbao97/sea-g2p) để chuẩn hóa văn bản và phiên âm.
 
 **Được thực hiện với ❤️ dành cho cộng đồng TTS Việt Nam**
