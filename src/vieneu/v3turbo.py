@@ -243,7 +243,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         if data.get("default_voice") in self._preset_voices:
             self._default_voice = data["default_voice"]
         if n:
-            logger.info(f"📢 Loaded {n} voice(s) from {backbone_repo} (default: {self._default_voice})")
+            logger.info("📢 Loaded %d extra voice(s) shipped with the model.", n)
 
     def list_preset_voices(self) -> List[tuple]:
         """Return ``[(label, voice_id), ...]`` for the built-in voices."""

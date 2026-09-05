@@ -16,7 +16,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import random
 import sys
 import time
 from pathlib import Path
@@ -31,6 +30,7 @@ sys.path.insert(0, str(ROOT / "finetune"))
 
 from vieneu_lora import (V3TurboLoraDataset, attach_lora, compute_loss, load_rows, save_adapter)   # noqa: E402
 from vieneu_lora.lora import export_merged, merge_lora_into, trainable_parameters               # noqa: E402
+from vieneu_lora.utils import safe_path                                                          # noqa: E402
 
 
 def parse_args():
@@ -89,11 +89,11 @@ def evaluate(model, loader, device, autocast, args):
 
 def main() -> None:
     args = parse_args()
-    random.seed(args.seed); np.random.seed(args.seed); torch.manual_seed(args.seed)
+    rng = np.random.default_rng(args.seed); torch.manual_seed(args.seed)
     if not torch.cuda.is_available():
         raise SystemExit("LoRA training needs a CUDA GPU.")
     device = torch.device("cuda")
-    out_dir = Path(args.output_dir) / args.run
+    out_dir = safe_path(Path(args.output_dir) / args.run)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "train_args.json").write_text(json.dumps(vars(args), indent=1), encoding="utf-8")
 
@@ -116,12 +116,12 @@ def main() -> None:
     print(f"trainable params: {n_train/1e6:.2f}M / {n_all/1e6:.1f}M ({100*n_train/n_all:.2f}%)  target={args.target} unfreeze={unfreeze}")
 
     # ── data ──
-    rows = load_rows(args.data)
-    random.shuffle(rows)
+    rows = load_rows(safe_path(args.data))
+    rng.shuffle(rows)
     n_eval = max(1, int(len(rows) * args.eval_ratio)) if len(rows) >= 20 else 0
     eval_rows, train_rows = rows[:n_eval], rows[n_eval:]
     mk = lambda rs: V3TurboLoraDataset(rs, tokenizer, model.config, max_length=args.max_length,
-                                        use_ref=not args.no_ref, ref_drop_rate=args.ref_drop_rate)
+                                        use_ref=not args.no_ref, ref_drop_rate=args.ref_drop_rate, seed=args.seed)
     train_ds = mk(train_rows)
     eval_ds = mk(eval_rows) if eval_rows else None
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, drop_last=False,

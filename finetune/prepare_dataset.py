@@ -26,6 +26,9 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "finetune"))
+
+from vieneu_lora.utils import safe_path   # noqa: E402
 
 
 def read_metadata(path: Path, default_speaker: str):
@@ -62,10 +65,10 @@ def main() -> None:
     ap.add_argument("--base", default="pnnbao-ump/VieNeu-TTS-v3-Turbo", help="model repo (codec + speaker encoder)")
     args = ap.parse_args()
 
-    ds_dir = Path(args.dataset_dir)
-    meta = Path(args.metadata) if args.metadata else ds_dir / "metadata.csv"
-    audio_dir = Path(args.audio_dir) if args.audio_dir else ds_dir / "raw_audio"
-    out = Path(args.out) if args.out else ds_dir / "train.parquet"
+    ds_dir = safe_path(args.dataset_dir)
+    meta = safe_path(args.metadata) if args.metadata else ds_dir / "metadata.csv"
+    audio_dir = safe_path(args.audio_dir) if args.audio_dir else ds_dir / "raw_audio"
+    out = safe_path(args.out) if args.out else ds_dir / "train.parquet"
     rows = read_metadata(meta, args.speaker)
     print(f"{len(rows)} clips listed in {meta}")
 
@@ -77,7 +80,7 @@ def main() -> None:
 
     recs, skipped, t0 = [], 0, time.perf_counter()
     for i, r in enumerate(rows, 1):
-        p = audio_dir / r["file_name"]
+        p = safe_path(r["file_name"], base=audio_dir)
         if not p.is_file():
             print(f"  missing audio: {p}"); skipped += 1; continue
         wav, sr = sf.read(str(p), dtype="float32", always_2d=True)

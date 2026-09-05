@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "finetune"))
 
 from vieneu_lora.lora import export_merged, load_adapter, merge_lora_into   # noqa: E402
+from vieneu_lora.utils import safe_path                                     # noqa: E402
 
 
 def main() -> None:
@@ -38,9 +39,9 @@ def main() -> None:
     print(f"loading base {args.base}/{args.subfolder} on {device} ...")
     tokenizer = AutoTokenizer.from_pretrained(args.base, subfolder=args.subfolder or "", trust_remote_code=True)
     model = load_v3_turbo_checkpoint(args.base, subfolder=args.subfolder or None, device=device, dtype=torch.float32)
-    peft_model = load_adapter(model, args.adapter)
+    peft_model = load_adapter(model, safe_path(args.adapter))
     merged = merge_lora_into(peft_model)
-    out = export_merged(merged, tokenizer, args.base, args.out, subfolder=args.subfolder)
+    out = export_merged(merged, tokenizer, args.base, safe_path(args.out), subfolder=args.subfolder)
     print(f"merged model written to {out}")
 
     if args.push_to_hub:

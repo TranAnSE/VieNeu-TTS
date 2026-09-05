@@ -20,6 +20,9 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "finetune"))
+
+from vieneu_lora.utils import safe_path   # noqa: E402
 
 
 def main() -> None:
@@ -36,10 +39,10 @@ def main() -> None:
 
     from vieneu import Vieneu
     tts = Vieneu(mode="v3turbo", backend="onnx", precision="fp32", backbone_repo=args.base)
-    spk, codes = tts.encode_reference(args.audio, denoise=not args.no_denoise)
+    spk, codes = tts.encode_reference(str(safe_path(args.audio)), denoise=not args.no_denoise)
     spk, codes = np.asarray(spk).reshape(-1), np.asarray(codes)
 
-    path = Path(args.out)
+    path = safe_path(args.out)
     if path.suffix != ".json":
         path = path / "voices_v3_turbo.json"
     data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {"presets": {}}

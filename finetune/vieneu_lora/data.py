@@ -23,7 +23,6 @@ the frames the model has to produce.
 """
 from __future__ import annotations
 
-import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -79,8 +78,10 @@ class V3TurboLoraDataset(Dataset):
         min_ref_frames: int = 38,
         max_ref_frames: int = 125,
         style: Optional[str] = None,
+        seed: Optional[int] = None,
     ):
         self.tok, self.cfg = tokenizer, config
+        self.rng = np.random.default_rng(seed)
         self.n_vq = int(config.n_vq)
         self.audio_pad = int(config.audio_pad_token_id)
         self.text_pad = int(config.pad_token_id)
@@ -132,18 +133,18 @@ class V3TurboLoraDataset(Dataset):
 
     def _pick_ref(self, idx: int) -> Optional[torch.LongTensor]:
         """A random window of another utterance of the same speaker, or None."""
-        if not self.use_ref or (self.ref_drop_rate > 0 and random.random() < self.ref_drop_rate):
+        if not self.use_ref or (self.ref_drop_rate > 0 and self.rng.random() < self.ref_drop_rate):
             return None
         peers = [j for j in self.by_speaker.get(str(self.rows[idx].get("speaker") or ""), []) if j != idx]
         if not peers:
             return None
-        ref = self._codes_tensor(self.rows[random.choice(peers)]["codes"])
+        ref = self._codes_tensor(self.rows[int(self.rng.choice(peers))]["codes"])
         T = int(ref.shape[0])
         hi = min(self.max_ref, T)
         lo = min(self.min_ref, hi)
-        win = random.randint(lo, hi) if hi > lo else hi
+        win = int(self.rng.integers(lo, hi + 1)) if hi > lo else hi
         if win < T:
-            s = random.randint(0, T - win)
+            s = int(self.rng.integers(0, T - win + 1))
             ref = ref[s:s + win]
         return ref
 
