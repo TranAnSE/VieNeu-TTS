@@ -64,8 +64,7 @@ authors = [
 ]
 requires-python = ">=3.10"
 # Minimal, TORCH-FREE core. `pip install vieneu` runs VieNeu-TTS v3 Turbo on CPU
-# via ONNX Runtime. GPU is a manual step (install a CUDA torch + transformers
-# yourself — there is no [gpu] extra; see [project.optional-dependencies] below);
+# via ONNX Runtime. GPU (v3 Turbo PyTorch backend): `pip install vieneu[cuda]`;
 # legacy backends (llama-cpp, lmdeploy, librosa, neucodec) live in the [legacy] extra.
 dependencies = [
     "sea-g2p>=0.9.1", # phonemizer (Rust, torch-free) — cần hàm punc_norm() (>=0.7.11)
@@ -116,6 +115,14 @@ pdf = [
 # Install with: pip install vieneu[watermark]
 watermark = [
     "resemble-perth>=1.0.1",
+]
+
+# v3 Turbo on CUDA (PyTorch backend) — what the docker/Dockerfile.gpu image installs.
+# Install with: uv sync --extra cuda   (or: pip install vieneu[cuda])
+cuda = [
+    "torch",
+    "transformers",
+    "safetensors",
 ]
 
 # LoRA fine-tuning of v3 Turbo (finetune/): GPU only.

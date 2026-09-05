@@ -89,7 +89,19 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
    Access the UI at `http://127.0.0.1:7860`.
 
+### Docker (Web UI, v3 Turbo + v3 Nano only)
+
+```bash
+# CPU — torch-free image (v3 Turbo via ONNX Runtime + v3 Nano)
+docker compose -f docker/docker-compose.yml --profile cpu up
+# GPU — v3 Turbo on CUDA (PyTorch) — needs the NVIDIA Container Toolkit
+docker compose -f docker/docker-compose.yml --profile gpu up
+```
+
+Then open http://localhost:7860. The images install only the v3 stack (no lmdeploy / llama-cpp / eSpeak); downloaded models are kept in the `huggingface_cache` volume.
+
 ---
+
 
 ## 📦 2. Using the Python SDK (vieneu) <a name="sdk"></a>
 

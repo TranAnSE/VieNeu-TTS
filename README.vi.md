@@ -83,7 +83,19 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
    Truy cập giao diện tại `http://127.0.0.1:7860`.
 
+### Docker (Web UI, chỉ v3 Turbo + v3 Nano)
+
+```bash
+# CPU — image không torch (v3 Turbo qua ONNX Runtime + v3 Nano)
+docker compose -f docker/docker-compose.yml --profile cpu up
+# GPU — v3 Turbo trên CUDA (PyTorch) — cần NVIDIA Container Toolkit
+docker compose -f docker/docker-compose.yml --profile gpu up
+```
+
+Sau đó mở http://localhost:7860. Image chỉ cài bộ v3 (không lmdeploy / llama-cpp / eSpeak); model tải về nằm trong volume `huggingface_cache`.
+
 ---
+
 
 ## 📦 2. Sử dụng Python SDK (vieneu) <a name="sdk"></a>
 

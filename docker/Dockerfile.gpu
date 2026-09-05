@@ -1,54 +1,44 @@
+# VieNeu-TTS Web UI — GPU image (v3 Turbo on CUDA, v3 Nano on CPU).
+# Only the v3 stack is installed: the torch-free core + torch/transformers for the
+# PyTorch backend. Legacy v1/v2 backends (lmdeploy, llama-cpp, neucodec) are NOT included.
+#
+#   docker build -t vieneu-tts:gpu -f docker/Dockerfile.gpu .
+#   docker run --gpus all -p 7860:7860 -v hf_cache:/root/.cache/huggingface vieneu-tts:gpu
 FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04 AS base
 
-# Thiết lập biến môi trường
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     HF_HOME=/root/.cache/huggingface \
-    PHONEMIZER_ESPEAK_LIBRARY=/usr/lib/x86_64-linux-gnu/libespeak-ng.so.1 \
     UV_PROJECT_ENVIRONMENT="/opt/venv" \
+    UV_LINK_MODE=copy \
     PATH="/opt/venv/bin:$PATH"
 
-# Cài đặt Python 3.12 và dependencies
+# Python 3.12 + certificates only (no espeak, no compilers: every dependency ships wheels).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
+    software-properties-common ca-certificates \
     && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 \
-    python3.12-dev \
-    espeak-ng \
-    libespeak-ng1 \
-    git \
-    curl \
-    wget \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Config python default
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
+    && apt-get update && apt-get install -y --no-install-recommends python3.12 \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
     && update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
 
-# Ref: https://docs.astral.sh/uv/getting-started/installation/#standalone-installer
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-RUN ln -s /bin/uv /bin/dep-installer
-
-# Thiết lập thư mục làm việc
 WORKDIR /workspace
 
-# --- Stage: Development ---
+# --- Stage: dev (source is bind-mounted by docker-compose) ---
 FROM base AS dev
 COPY pyproject.toml uv.lock ./
-RUN dep-installer sync --frozen
-
+RUN uv sync --frozen --no-dev --extra cuda --no-install-project
 CMD ["/bin/bash"]
 
-# --- Stage: Production ---
+# --- Stage: prod ---
 FROM base AS prod
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --extra cuda --no-install-project
 COPY . .
-# Enable frozen sync as we have the correct uv.lock
-RUN dep-installer sync --frozen --no-dev --group gpu
+RUN uv sync --frozen --no-dev --extra cuda
 
 EXPOSE 7860
-# Use env vars for server config (GRADIO_SERVER_NAME, GRADIO_SERVER_PORT are read by gradio_main.py)
 ENV GRADIO_SERVER_NAME=0.0.0.0 \
     GRADIO_SERVER_PORT=7860 \
     GRADIO_SHARE=0
