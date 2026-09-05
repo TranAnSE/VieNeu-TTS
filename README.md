@@ -99,7 +99,7 @@ The `vieneu` SDK **defaults to VieNeu-TTS v3 Turbo (48 kHz)**. The minimal insta
 **CPU (default)** — torch-free, runs v3 Turbo via ONNX Runtime. Most users want this:
 > ⚡**On CPU the backbone runs `fp32` by default** (maximum fidelity). Need more speed? Pass `Vieneu(precision="int8")` — ~1.6× faster and ~4× smaller, but it requires a CPU with VNNI (AVX-512 VNNI / AVX-VNNI); on older CPUs int8 can produce garbled audio. `precision` only affects the CPU/ONNX path; on GPU it's ignored (PyTorch).
 >
-> 🪶 **Still too slow, or deploying on a phone / ARM board?** Try **[VieNeu-TTS v3 Nano (preview)](#v3-nano)** — `Vieneu(mode="v3nano")`, ~3× faster than Turbo fp32 on CPU (RTF 0.11–0.22 on a desktop CPU), but **noticeably lower quality** (especially English / bilingual), 24 kHz, 11 preset voices only. Details and caveats in the [v3 Nano section](#v3-nano) below.
+> 🪶 **Still too slow, or deploying on a phone / ARM board?** Try **[VieNeu-TTS v3 Nano (preview)](#v3-nano)** — `Vieneu(mode="v3nano")`, ~3× faster than Turbo fp32 on CPU (RTF 0.11–0.22 on a desktop CPU), but **noticeably lower quality** (especially English / bilingual), 24 kHz, 11 preset voices + voice cloning. Details and caveats in the [v3 Nano section](#v3-nano) below.
 
 ```bash
 pip install vieneu
@@ -269,7 +269,7 @@ wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")   # 44.1 kHz mono
 
 > **Note:** `denoise`, `add_voice`, and voice cloning work on every backend — the
 > torch-free CPU/ONNX install included (the whole cloning pipeline runs on
-> onnxruntime + soxr + kaldi-native-fbank). The one exception is **v3 Nano** below (preset voices only).
+> onnxruntime + soxr + kaldi-native-fbank). **v3 Nano** below clones the same way (its cloning graphs are fetched on first use).
 
 <a id="v3-nano"></a>
 ### v3 Nano (preview) — for edge devices / weak CPUs only 🪶
@@ -282,7 +282,7 @@ wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")   # 44.1 kHz mono
 > - **Lower quality than v3 Turbo — most noticeably on English and code-switched (En-Vi) text.**
 >   Vietnamese is close; English words come out with a Vietnamese accent and are less stable.
 > - **24 kHz** output (Turbo: 48 kHz).
-> - **11 preset voices only, no voice cloning** (`ref_audio`, `add_voice`, `encode_reference` raise).
+> - **11 preset voices + voice cloning** (`ref_audio`, `add_voice`, `encode_reference` work like Turbo; the three cloning graphs, ~110 MB, download on first use).
 > - **No frame-level streaming** — `infer_stream` yields one finished chunk at a time.
 
 Measured on the same desktop CPU (12th-gen Intel i7, 6 ONNX Runtime threads, ~9 s of speech):
@@ -412,7 +412,7 @@ docker run --gpus all \
 | Model | Format | Device | Bilingual | Features | Speed |
 |---|---|---|---|---|---|
 | **VieNeu-TTS-v3-Turbo** *(default)* | PyTorch/ONNX | **GPU/CPU** | ✅ | **48 kHz, Default voices, Cloning, Emotion cues, Conversation** | **Fast (batched)** |
-| **VieNeu-TTS-v3-Nano** *(preview)* | ONNX | **weak CPU / edge** | ⚠️ weak | 24 kHz, 11 preset voices, emotion cues — **no cloning, lower quality (esp. English / En-Vi)** | **Fastest on CPU (RTF 0.11–0.22 desktop)** |
+| **VieNeu-TTS-v3-Nano** *(preview)* | ONNX | **weak CPU / edge** | ⚠️ weak | 24 kHz, 11 preset voices, cloning, emotion cues — **lower quality (esp. English / En-Vi)** | **Fastest on CPU (RTF 0.11–0.22 desktop)** |
 | **VieNeu-TTS-v2** | PyTorch | **GPU** | ✅ | **Podcast, En-Vi CS** | **Fast (LMDeploy)** |
 | **VieNeu-v2-CPU** | GGUF/ONNX | **CPU/Edge** | ✅ | **Podcast, En-Vi CS** | **Extreme Speed** |
 | **VieNeu-v2-Turbo** | GGUF/ONNX | **CPU/Edge** | ✅ | Lightweight En-Vi | **Ultra Fast** |

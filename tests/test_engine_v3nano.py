@@ -29,7 +29,27 @@ class _FakeSession:
         if self.kind == "codec_decoder":
             T = feeds["x"].shape[2]
             return [np.random.default_rng(0).standard_normal((1, 1, T * 6 * 256)).astype(np.float32) * 0.3]
+        # ── cloning graphs ──
+        if self.kind == "codec_encoder":                       # wav [1,1,N] -> mu [1,24,N//256]
+            N = feeds["wav"].shape[2]
+            return [np.ones((1, 24, max(1, N // 256)), np.float32) * 0.5]
+        if self.kind == "reference_encoder":                   # ref [1,144,Tr] -> style [1,S,C]
+            assert feeds["ref"].shape[1] == 24 * 6 and feeds["ref_mask"].shape[1] == feeds["ref"].shape[2]
+            return [np.full((1, S, C), float(feeds["ref"].shape[2]), np.float32)]
+        if self.kind == "speaker_encoder":                     # fbank [1,F,80] -> x-vector [1,192]
+            assert feeds["input"].shape[2] == 80
+            return [np.arange(192, dtype=np.float32)[None] / 192]
         raise AssertionError(self.kind)
+
+    class _IO:
+        def __init__(self, name):
+            self.name = name
+
+    def get_inputs(self):
+        return [self._IO({"codec_encoder": "wav", "speaker_encoder": "input"}.get(self.kind, "x"))]
+
+    def get_outputs(self):
+        return [self._IO("output")]
 
 
 class _LongDurSession(_FakeSession):
@@ -44,10 +64,25 @@ def bundle(tmp_path):
         "emotion_tags": {"<|emotion_1|>": "①", "<|emotion_2|>": "②", "<|emotion_3|>": "③"},
     }), encoding="utf-8")
     np.savez(tmp_path / "constants.npz", null_spk=np.zeros(192, np.float32),
-             null_style=np.zeros((S, C), np.float32))
-    for n in ["text_encoder", "duration_predictor", "vector_estimator", "codec_decoder"]:
+             null_style=np.zeros((S, C), np.float32),
+             latent_mean=np.zeros(24, np.float32), latent_std=np.ones(24, np.float32),
+             latent_scale=np.float32(0.25))
+    for n in ["text_encoder", "duration_predictor", "vector_estimator", "codec_decoder",
+              "codec_encoder", "reference_encoder", "speaker_encoder"]:
         (tmp_path / f"{n}.onnx").write_bytes(b"")
     return tmp_path
+
+
+@pytest.fixture
+def ref_wav(tmp_path):
+    """1.5 s, 16 kHz tone with a little noise — enough for fbank + the fake graphs."""
+    import soundfile as sf
+    sr = 16000
+    t = np.arange(int(1.5 * sr)) / sr
+    wav = (0.3 * np.sin(2 * np.pi * 220 * t) + 0.01 * np.random.default_rng(1).standard_normal(t.size)).astype(np.float32)
+    path = tmp_path / "ref.wav"
+    sf.write(path, wav, sr)
+    return str(path)
 
 
 def _engine(bundle, session_cls=_FakeSession):
@@ -101,7 +136,7 @@ def _fake_load_voices(self):
     self._default_voice = "V1"
 
 
-def test_tts_presets_infer_stream_batch_and_clone_guard(bundle):
+def test_tts_presets_infer_stream_batch(bundle):
     with patch("onnxruntime.InferenceSession", _FakeSession), \
          patch.object(V3NanoVieNeuTTS, "_load_nano_voices", _fake_load_voices), \
          patch("vieneu.v3nano.phonemize_text_with_emotions", lambda t: "a b."), \
@@ -124,9 +159,48 @@ def test_tts_presets_infer_stream_batch_and_clone_guard(bundle):
                                use_ref_codes=True, temperature=0.8, max_new_frames=300)
         assert out.size > 0
 
-        with pytest.raises(NotImplementedError):
-            tts.encode_reference("clip.wav")
-        with pytest.raises(NotImplementedError):
-            tts.infer("x", ref_audio="clip.wav")
         with pytest.raises(ValueError):
             tts.infer("x", voice="không có")
+
+
+def test_engine_prepare_reference_shapes_and_grouping(bundle, ref_wav):
+    eng = _engine(bundle)
+    with patch("onnxruntime.InferenceSession", _FakeSession):        # cloning graphs load lazily
+        spk, style = eng.prepare_reference(ref_wav, denoise=False)
+    assert spk.shape == (192,) and spk.dtype == np.float32
+    assert style.shape == (S, C) and style.dtype == np.float32
+    # 1.5 s @ 24 kHz -> 140 latent frames -> grouped x6 = 24 flow frames (<= 5 s * 15.625 = 78)
+    assert float(style[0, 0]) == 24.0
+    # numpy grouping matches the training layout: [B,C,T] -> [B,C*g,T//g], padded
+    z = np.arange(1 * 2 * 7, dtype=np.float32).reshape(1, 2, 7)
+    g = eng._group_latent(z)
+    assert g.shape == (1, 12, 2)
+    assert g[0, :6, 0].tolist() == [0, 1, 2, 3, 4, 5] and g[0, 6:, 0].tolist() == [7, 8, 9, 10, 11, 12]
+    assert g[0, 0, 1] == 6 and g[0, 1, 1] == 0                         # padded tail
+
+
+def test_tts_voice_cloning_paths(bundle, ref_wav, tmp_path):
+    with patch("onnxruntime.InferenceSession", _FakeSession), \
+         patch.object(V3NanoVieNeuTTS, "_load_nano_voices", _fake_load_voices), \
+         patch("vieneu.v3nano.phonemize_text_with_emotions", lambda t: "a b."), \
+         patch("vieneu.v3nano.normalize_to_chunks_v3_with_gaps", lambda t, max_chars=140: (["x"], [])):
+        tts = V3NanoVieNeuTTS(onnx_dir=str(bundle))
+        spk, style = tts.encode_reference(ref_wav, denoise=False)
+        assert spk.shape == (192,) and style.shape == (S, C)
+
+        wav = tts.infer("x", ref_audio=ref_wav, denoise=False, apply_watermark=False)
+        assert wav.dtype == np.float32 and wav.size > 0
+        wav2 = tts.infer("x", voice={"speaker_emb": spk, "style": style}, apply_watermark=False)
+        assert wav2.size > 0
+        assert len(tts.infer_batch(["a", "b"], ref_audio=ref_wav, denoise=False, apply_watermark=False)) == 2
+
+        tts.add_voice("Mới", ref_wav, denoise=False, description="d", gender="female")
+        assert "Mới" in dict(tts.list_preset_voices()).values() or "Mới" in tts._preset_voices
+        assert tts.infer("x", voice="Mới", apply_watermark=False).size > 0
+        out = tts.save_voices(tmp_path / "voices.json")
+        saved = json.loads(Path(out).read_text(encoding="utf-8"))
+        assert set(saved["presets"]) == {"V1", "V2", "Mới"}
+        assert len(saved["presets"]["Mới"]["speaker_emb"]) == 192
+        assert np.asarray(saved["presets"]["Mới"]["style"]).shape == (S, C)
+        tts.remove_voice("Mới")
+        assert "Mới" not in tts._preset_voices

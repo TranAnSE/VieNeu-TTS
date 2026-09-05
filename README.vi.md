@@ -261,7 +261,7 @@ wav, sr = vieneu.denoise("noisy.wav", out_path="clean.wav")   # 44.1 kHz mono
 > - **Chất lượng thấp hơn v3 Turbo — rõ nhất ở tiếng Anh và câu song ngữ Anh-Việt.**
 >   Tiếng Việt gần tương đương; từ tiếng Anh đọc mang giọng Việt và kém ổn định hơn.
 > - Âm thanh **24 kHz** (Turbo: 48 kHz).
-> - **Chỉ 11 giọng có sẵn, không clone giọng** (`ref_audio`, `add_voice`, `encode_reference` sẽ báo lỗi).
+> - **11 giọng có sẵn + clone giọng** (`ref_audio`, `add_voice`, `encode_reference` dùng như Turbo; ba đồ thị clone ~110 MB tải ở lần dùng đầu).
 > - **Không streaming theo frame** — `infer_stream` trả từng chunk đã hoàn chỉnh.
 
 Đo trên cùng một CPU desktop (Intel i7 thế hệ 12, 6 luồng ONNX Runtime, ~9 giây tiếng nói):
@@ -391,7 +391,7 @@ docker run --gpus all \
 | Model | Engine | Thiết bị | Sample Rate | Tính năng |
 |---|---|---|---|---|
 | **VieNeu-TTS v3 Turbo** *(mặc định)* | ONNX (CPU) / PyTorch (GPU) | CPU/GPU | 48 kHz | Giọng dựng sẵn, clone giọng, cảm xúc |
-| **VieNeu-TTS v3 Nano** *(preview, máy yếu)* | ONNX (CPU) | CPU yếu / edge | 24 kHz | 11 giọng dựng sẵn, cảm xúc — **không clone, chất lượng thấp hơn (nhất là tiếng Anh / song ngữ)**, RTF 0.11–0.22 trên desktop |
+| **VieNeu-TTS v3 Nano** *(preview, máy yếu)* | ONNX (CPU) | CPU yếu / edge | 24 kHz | 11 giọng dựng sẵn, clone giọng, cảm xúc — **chất lượng thấp hơn (nhất là tiếng Anh / song ngữ)**, RTF 0.11–0.22 trên desktop |
 
 > [!TIP]
 > Trên **CPU**, backbone chạy `fp32` mặc định (chất lượng tối đa); dùng `Vieneu(precision="int8")` nếu cần nhanh hơn (cần CPU có VNNI). Trên **GPU (CUDA)**, suy luận **tự động batch** — cùng API, không đổi code. Máy quá yếu hoặc deploy trên điện thoại: xem [v3 Nano (preview)](#v3-nano).

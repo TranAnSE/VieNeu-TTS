@@ -9,7 +9,7 @@ def Vieneu(mode="v3turbo", **kwargs):
               via ONNX Runtime; GPU uses PyTorch. Works with the minimal install.
               'v3nano' — VieNeu-TTS v3 Nano, 24 kHz, ONNX/CPU only, torch-free. A
               48M-parameter flow model for WEAK CPUs where v3 Turbo is too slow.
-              Preset voices only (no cloning); English / code-switched text is
+              Preset voices + voice cloning; English / code-switched text is
               noticeably weaker than v3 Turbo. Pick it only when Turbo can't keep up.
               Other modes need extras (``pip install vieneu[gpu]``):
               'standard' (CPU/GPU-GGUF), 'fast' (GPU-LMDeploy), 'turbo'/'turbo_gpu',

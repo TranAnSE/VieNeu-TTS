@@ -195,13 +195,11 @@ def get_available_devices() -> list[str]:
 def _supports_cloning(backbone_choice: str) -> bool:
     """Voice Cloning availability by model.
 
-    v3+ clones directly from a sample audio; VieNeu-TTS-v2 (GPU) clones from
-    audio plus a reference transcript. v1 and the CPU/Turbo builds stay
-    preset-only.
+    v3 Turbo and v3 Nano clone directly from a sample audio (Nano fetches its
+    cloning graphs on first use); VieNeu-TTS-v2 (GPU) clones from audio plus a
+    reference transcript. v1 and the CPU v2 builds stay preset-only.
     """
     c = (backbone_choice or "").lower()
-    if "nano" in c:
-        return False   # v3 Nano ships preset voices only (no codec encoder → no cloning)
     return "v3" in c or c == "vieneu-tts-v2 (gpu)"
 
 def get_model_status_message() -> str:

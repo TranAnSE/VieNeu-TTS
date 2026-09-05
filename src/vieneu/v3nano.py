@@ -10,8 +10,9 @@ v3 Nano is a 48M-parameter flow-matching model for machines where v3 Turbo is to
 slow — old laptops, mini PCs, single-board computers. What you trade for that:
 
   * 24 kHz output (Turbo: 48 kHz).
-  * Preset voices only — no voice cloning (the codec encoder needed to enroll a new
-    reference clip is not shipped). ``encode_reference`` / ``add_voice`` raise.
+  * Voice cloning enrolls a clip torch-free (speaker_encoder + codec_encoder +
+    reference_encoder ONNX, fetched on first use): ``infer(ref_audio=...)``,
+    ``encode_reference`` and ``add_voice`` work like v3 Turbo.
   * Lower quality on English and code-switched text (trained on ~4,000 h of
     Vietnamese; English exposure is incidental).
   * Non-autoregressive: no frame-level streaming — ``infer_stream`` yields one
@@ -47,6 +48,13 @@ logger = logging.getLogger("Vieneu.V3Nano")
 _NANO_REPO = "pnnbao-ump/VieNeu-TTS-v3-Nano"
 _GRAPH_FILES = ["text_encoder.onnx", "duration_predictor.onnx", "vector_estimator.onnx",
                 "codec_decoder.onnx", "config.json", "constants.npz"]
+# Voice cloning (fetched lazily on the first clone): x-vector + codec encoder +
+# reference/style encoder. The denoiser is optional (falls back to v3 Turbo's copy).
+_CLONE_FILES = ["speaker_encoder.onnx", "codec_encoder.onnx", "reference_encoder.onnx"]
+_DENOISER_FILE = "denoiser.onnx"
+_TURBO_REPO_FOR_DENOISER = "pnnbao-ump/VieNeu-TTS-v3-Turbo"
+_REF_SECONDS = 5.0               # style tokens come from the first 5 s of the clip
+_MAX_REF_SECONDS = 30.0          # x-vector sees at most this much audio
 _MAX_CHUNK_SECONDS = 15.0        # training clips were <= 15 s; longer targets drift
 _MIN_FRAMES = 2
 
@@ -71,11 +79,18 @@ class OnnxV3NanoEngine:
 
         self._lock = threading.RLock()
         self.device = _Dev()
+        self.repo, self.local_dir, self.hf_token = repo, local_dir, hf_token
         d = Path(local_dir) if local_dir else self._fetch(repo, hf_token)
         self.cfg = json.loads((d / "config.json").read_text(encoding="utf-8"))
         c = np.load(d / "constants.npz")
         self.null_spk = c["null_spk"].astype(np.float32)[None]           # [1,192]
         self.null_style = c["null_style"].astype(np.float32)[None]       # [1,S,C]
+        # Latent normalisation for the reference/style path (cloning only).
+        self.lat_mean = c["latent_mean"].astype(np.float32)[None, :, None] if "latent_mean" in c.files else None
+        self.lat_std = c["latent_std"].astype(np.float32)[None, :, None] if "latent_std" in c.files else None
+        self.lat_scale = float(c["latent_scale"]) if "latent_scale" in c.files else float(self.cfg.get("latent_scale", 1.0))
+        self.group = int(self.cfg.get("group", 6))
+        self.ref_max_frames = int(self.cfg.get("ref_max_frames", 140))
         self.vocab: Dict[str, int] = self.cfg["vocab"]
         self.bos, self.eos, self.pad = int(self.cfg["bos_id"]), int(self.cfg["eos_id"]), int(self.cfg["pad_id"])
         self.fps = float(self.cfg.get("flow_fps", 24000 / 256 / 6))
@@ -100,6 +115,12 @@ class OnnxV3NanoEngine:
         null_ids = np.array([[self.bos, self.eos]], dtype=np.int64)
         self._null_ctx = self.s_text.run(None, {"ids": null_ids, "style": self.null_style})[0]
         self._null_mask = null_ids != self.pad
+        self._so, self._prov = so, prov
+        # cloning graphs: created on first use (see _ensure_clone_sessions)
+        self.s_codec_enc = self.s_ref = None
+        self.speaker_encoder = None
+        self.denoiser = None
+        self._denoiser_tried = False
 
     @staticmethod
     def _fetch(repo: str, token: Optional[str]) -> Path:
@@ -108,6 +129,99 @@ class OnnxV3NanoEngine:
         for fn in _GRAPH_FILES:
             last = hf_hub_download(repo, fn, repo_type="model", token=token)
         return Path(last).parent
+
+    # ── voice cloning: reference clip -> (x-vector, style tokens) ─────────────
+    def _clone_file(self, fn: str, repo: Optional[str] = None) -> str:
+        """Resolve a cloning artifact from ``local_dir`` (if given) or the HF repo."""
+        if self.local_dir and repo is None:
+            p = Path(self.local_dir) / fn
+            if p.is_file():
+                return str(p)
+        from huggingface_hub import hf_hub_download
+        return hf_hub_download(repo or self.repo, fn, repo_type="model", token=self.hf_token)
+
+    def _ensure_clone_sessions(self) -> None:
+        if self.s_codec_enc is not None:
+            return
+        import onnxruntime as ort
+        from ._v3_turbo_engine.speaker import OnnxSpeakerEncoder
+        if self.lat_mean is None or self.lat_std is None:
+            raise RuntimeError("Nano bundle lacks latent_mean/latent_std in constants.npz — cannot enroll references.")
+        self.speaker_encoder = OnnxSpeakerEncoder(self._clone_file("speaker_encoder.onnx"),
+                                                  max_seconds=_MAX_REF_SECONDS)
+        self.s_codec_enc = ort.InferenceSession(self._clone_file("codec_encoder.onnx"), self._so, providers=self._prov)
+        self.s_ref = ort.InferenceSession(self._clone_file("reference_encoder.onnx"), self._so, providers=self._prov)
+
+    def _get_denoiser(self):
+        """resemble-enhance denoiser (ONNX, torch-free); None if unavailable."""
+        if not self._denoiser_tried:
+            self._denoiser_tried = True
+            try:
+                from ._v3_turbo_engine.onnx_denoiser import OnnxDenoiser
+                try:
+                    path = self._clone_file(_DENOISER_FILE)
+                except Exception:
+                    path = self._clone_file(_DENOISER_FILE, repo=_TURBO_REPO_FOR_DENOISER)
+                self.denoiser = OnnxDenoiser(path)
+            except Exception as e:                       # cloning still works, just un-denoised
+                logger.warning("Nano denoiser unavailable (%s) — enrolling without denoise.", e)
+                self.denoiser = None
+        return self.denoiser
+
+    @staticmethod
+    def _load_mono(ref_audio, sr: Optional[int]) -> Tuple[np.ndarray, int]:
+        if isinstance(ref_audio, (str, bytes)) or hasattr(ref_audio, "__fspath__"):
+            import soundfile as sf
+            wav, sr = sf.read(str(ref_audio), dtype="float32", always_2d=True)   # (n, ch)
+            wav = wav.mean(axis=1)
+        else:
+            wav = np.asarray(ref_audio, dtype=np.float32)
+            if sr is None:
+                raise ValueError("Pass `sr` when giving a waveform array.")
+            if wav.ndim == 2:
+                wav = wav.mean(axis=0) if wav.shape[0] <= wav.shape[1] else wav.mean(axis=1)
+        return np.asarray(wav, dtype=np.float32).reshape(-1), int(sr)
+
+    def _group_latent(self, z: np.ndarray) -> np.ndarray:
+        """[1, C, T] -> [1, C*group, ceil(T/group)] (pads T), as in training."""
+        g = self.group
+        B, C, T = z.shape
+        if T % g:
+            z = np.pad(z, ((0, 0), (0, 0), (0, g - T % g)))
+            T = z.shape[-1]
+        return z.reshape(B, C, T // g, g).transpose(0, 1, 3, 2).reshape(B, C * g, T // g)
+
+    def prepare_reference(self, ref_audio, *, sr: Optional[int] = None, denoise: bool = True,
+                          ref_seconds: float = _REF_SECONDS, max_seconds: float = _MAX_REF_SECONDS,
+                          use_ref_codes: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+        """Enroll a voice: ``(speaker_emb [192], style [50, 256])`` — the exact preset layout.
+
+        Recipe (matches the Nano export README / infer.py): x-vector from the 80-mel
+        Kaldi fbank of the whole clip (<= ``max_seconds``); style tokens from the codec
+        latent of the first ``ref_seconds`` seconds, normalised with the training
+        latent mean/std/scale, grouped x``group`` and cropped to ``ref_max_frames``.
+        ``use_ref_codes`` is accepted for API parity with v3 Turbo and ignored.
+        """
+        self._ensure_clone_sessions()
+        wav, sr = self._load_mono(ref_audio, sr)
+        wav = wav[: int(max_seconds * sr)]
+        if denoise:
+            den = self._get_denoiser()
+            if den is not None:
+                wav = np.asarray(den.denoise(wav, sr), dtype=np.float32)
+                sr = 44100
+        spk = self.speaker_encoder.embed(wav, sr)                             # (192,)
+        from ._v3_turbo_engine.speaker.audio_utils import high_quality_resample
+        m24 = wav if sr == self.SAMPLE_RATE else high_quality_resample(wav, sr, self.SAMPLE_RATE)
+        m24 = np.asarray(m24, dtype=np.float32)[: int(self.SAMPLE_RATE * ref_seconds)]
+        inp = self.s_codec_enc.get_inputs()[0].name
+        mu = self.s_codec_enc.run(None, {inp: m24[None, None]})[0]           # [1, 24, T]
+        z = (mu - self.lat_mean) / self.lat_std * self.lat_scale
+        z = self._group_latent(z)[:, :, : min(int(ref_seconds * self.fps), self.ref_max_frames)]
+        ref_mask = np.ones((1, z.shape[2]), dtype=bool)
+        style = self.s_ref.run(None, {"ref": z.astype(np.float32), "ref_mask": ref_mask})[0][0]   # [S, C]
+        return np.asarray(spk, dtype=np.float32), np.asarray(style, dtype=np.float32)
+
 
     # ── text ──────────────────────────────────────────────────────────────────
     def encode_phones(self, phones: str) -> np.ndarray:
@@ -230,18 +344,71 @@ class V3NanoVieNeuTTS(BaseVieneuTTS):
             raise ValueError(f"Voice '{name}' not found. Available: {list(self._preset_voices)}")
         return self._preset_voices[name]
 
-    _NO_CLONE = ("VieNeu-TTS v3 Nano chỉ hỗ trợ giọng có sẵn (preset), không clone giọng từ audio. "
-                 "Cần voice cloning thì dùng v3 Turbo: Vieneu(mode=\"v3turbo\").")
+    def encode_reference(self, ref_audio: Union[str, Path], denoise: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+        """Enroll a voice from a clip -> ``(speaker_emb [192], style [50, 256])``.
 
-    def encode_reference(self, ref_audio: Union[str, Path], denoise: bool = True):
-        raise NotImplementedError(self._NO_CLONE)
+        Same pre-clean as v3 Turbo (edge-silence trim, optional denoise). The pair can
+        be passed back as ``voice={"speaker_emb": ..., "style": ...}`` or registered
+        with :meth:`add_voice`.
+        """
+        import os
+        from .v3turbo import V3TurboVieNeuTTS
+        clean_ref = V3TurboVieNeuTTS._preclean_reference_audio(ref_audio)
+        try:
+            return self.engine.prepare_reference(str(clean_ref), denoise=denoise)
+        finally:
+            if clean_ref and Path(clean_ref).resolve() != Path(ref_audio).resolve():
+                try:
+                    os.remove(clean_ref)
+                except Exception:
+                    pass
 
-    def add_voice(self, name: str, ref_audio: Union[str, Path], **kwargs: Any) -> str:
-        raise NotImplementedError(self._NO_CLONE)
+    def add_voice(self, name: str, ref_audio: Union[str, Path], *, denoise: bool = True,
+                  description: str = "", gender: str = "", save: bool = False, **kwargs: Any) -> str:
+        """Register a cloned voice under ``name`` for ``infer(..., voice=name)``.
 
-    def _resolve_voice(self, voice, ref_audio) -> Tuple[np.ndarray, np.ndarray]:
+        ``save=True`` persists it to ``assets/voices_v3_nano.json`` (see :meth:`save_voices`).
+        """
+        if not name or not str(name).strip():
+            raise ValueError("Tên giọng không được để trống.")
+        spk, style = self.encode_reference(ref_audio, denoise=denoise)
+        self._preset_voices[name] = {
+            "description": description, "gender": gender,
+            "style": style, "codes": style, "speaker_emb": spk, "podcast": True,
+        }
+        if not self._default_voice:
+            self._default_voice = name
+        if save:
+            self.save_voices()
+        logger.info(f"➕ Added voice '{name}'.")
+        return name
+
+    def remove_voice(self, name: str, save: bool = False) -> None:
+        self._preset_voices.pop(name, None)
+        if self._default_voice == name:
+            self._default_voice = next(iter(self._preset_voices), None)
+        if save:
+            self.save_voices()
+
+    def save_voices(self, path: Optional[Union[str, Path]] = None) -> str:
+        """Persist the registered voices (x-vector + style tokens) as a Nano preset file."""
+        path = Path(path) if path else (Path(__file__).parent / "assets" / "voices_v3_nano.json")
+        presets = {}
+        for name, v in self._preset_voices.items():
+            presets[name] = {
+                "description": v.get("description", ""), "gender": v.get("gender", ""),
+                "ref_seconds": _REF_SECONDS,
+                "speaker_emb": [round(float(x), 6) for x in np.asarray(v["speaker_emb"]).reshape(-1)],
+                "style": [[round(float(x), 5) for x in row] for row in np.asarray(v["style"])],
+            }
+        data = {"meta": {"note": "VieNeu-TTS v3 Nano preset voices: 192-d x-vector + 50x256 style tokens"},
+                "default_voice": self._default_voice, "presets": presets}
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        return str(path)
+
+    def _resolve_voice(self, voice, ref_audio, denoise: bool = True) -> Tuple[np.ndarray, np.ndarray]:
         if ref_audio is not None:
-            raise NotImplementedError(self._NO_CLONE)
+            return self.encode_reference(ref_audio, denoise=denoise)
         if isinstance(voice, dict):
             preset = voice
         elif isinstance(voice, str):
@@ -268,6 +435,7 @@ class V3NanoVieNeuTTS(BaseVieneuTTS):
         ref_audio: Optional[Union[str, Path]] = None,
         voice: Optional[Union[str, dict]] = None,
         style: Any = None,          # accepted for API parity with v3 Turbo; ignored
+        denoise: bool = True,        # clean the reference clip before enrolling (ref_audio only)
         steps: Optional[int] = None,
         cfg: Optional[float] = None,
         sway: float = 0.0,
@@ -278,7 +446,7 @@ class V3NanoVieNeuTTS(BaseVieneuTTS):
         **kwargs: Any,
     ) -> np.ndarray:
         """Synthesize ``text`` into one 24 kHz waveform with a preset ``voice``."""
-        spk, st = self._resolve_voice(voice, ref_audio)
+        spk, st = self._resolve_voice(voice, ref_audio, denoise)
         chunks, gaps = normalize_to_chunks_v3_with_gaps(text, max_chars=max_chars)
         if not chunks:
             return np.array([], dtype=np.float32)
@@ -293,6 +461,7 @@ class V3NanoVieNeuTTS(BaseVieneuTTS):
         ref_audio: Optional[Union[str, Path]] = None,
         voice: Optional[Union[str, dict]] = None,
         style: Any = None,
+        denoise: bool = True,        # clean the reference clip before enrolling (ref_audio only)
         steps: Optional[int] = None,
         cfg: Optional[float] = None,
         sway: float = 0.0,
@@ -303,7 +472,7 @@ class V3NanoVieNeuTTS(BaseVieneuTTS):
     ) -> Generator[np.ndarray, None, None]:
         """Chunk-level streaming: yields each finished chunk (no frame-level streaming —
         the flow model generates a whole chunk at once)."""
-        spk, st = self._resolve_voice(voice, ref_audio)
+        spk, st = self._resolve_voice(voice, ref_audio, denoise)
         chunks, gaps = normalize_to_chunks_v3_with_gaps(text, max_chars=max_chars)
         pauses = gaps_to_silence(gaps)
         prev: Optional[np.ndarray] = None
@@ -329,7 +498,11 @@ class V3NanoVieNeuTTS(BaseVieneuTTS):
         apply_watermark: bool = True,
         **kwargs: Any,
     ) -> List[np.ndarray]:
-        """Sequential on CPU (one waveform per text, same order)."""
+        """Sequential on CPU (one waveform per text, same order). A ``ref_audio`` is
+        enrolled once and reused for every text."""
+        if ref_audio is not None:
+            spk, st = self.encode_reference(ref_audio, denoise=kwargs.pop("denoise", True))
+            voice, ref_audio = {"speaker_emb": spk, "style": st}, None
         return [self.infer(t, ref_audio=ref_audio, voice=voice, apply_watermark=apply_watermark, **kwargs)
                 for t in texts]
 
