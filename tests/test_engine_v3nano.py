@@ -105,8 +105,7 @@ def test_tts_presets_infer_stream_batch_and_clone_guard(bundle):
     with patch("onnxruntime.InferenceSession", _FakeSession), \
          patch.object(V3NanoVieNeuTTS, "_load_nano_voices", _fake_load_voices), \
          patch("vieneu.v3nano.phonemize_text_with_emotions", lambda t: "a b."), \
-         patch("vieneu.v3nano.normalize_to_chunks_v3_with_gaps", lambda t, max_chars=140: (["x", "y"], ["sentence"])), \
-         patch("vieneu.v3nano.normalize_to_chunks_v3", lambda t, max_chars=140: ["x", "y"]):
+         patch("vieneu.v3nano.normalize_to_chunks_v3_with_gaps", lambda t, max_chars=140: (["x", "y"], ["sentence"])):
         tts = V3NanoVieNeuTTS(onnx_dir=str(bundle))
         assert tts.sample_rate == 24000 and tts.backend == "onnx"
         assert [v for _, v in tts.list_preset_voices()] == ["V1", "V2"]
@@ -114,7 +113,9 @@ def test_tts_presets_infer_stream_batch_and_clone_guard(bundle):
 
         wav = tts.infer("bất kỳ", voice="V2", apply_watermark=False)
         assert isinstance(wav, np.ndarray) and wav.dtype == np.float32 and wav.size > 0
-        assert len(list(tts.infer_stream("bất kỳ", apply_watermark=False))) == 2
+        # 2 chunk, có thể thêm 1 mẩu zeros chèn giữa cho đủ khoảng nghỉ "sentence"
+        pieces = list(tts.infer_stream("bất kỳ", apply_watermark=False))
+        assert 2 <= len(pieces) <= 3 and all(p.dtype == np.float32 for p in pieces)
         assert len(tts.infer_batch(["a", "b"], apply_watermark=False)) == 2
 
         # the web UI calls the engine the same way it calls v3 Turbo's

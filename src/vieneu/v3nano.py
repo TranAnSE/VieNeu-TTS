@@ -36,10 +36,11 @@ import numpy as np
 from .base import BaseVieneuTTS
 from vieneu_utils.phonemize_text import (
     phonemize_text_with_emotions,
-    normalize_to_chunks_v3,
     normalize_to_chunks_v3_with_gaps,
 )
-from vieneu_utils.core_utils import join_audio_chunks, gaps_to_silence
+from vieneu_utils.core_utils import (
+    join_audio_chunks, gaps_to_silence, pause_pad_samples, trim_and_fade as _trim_and_fade,
+)
 
 logger = logging.getLogger("Vieneu.V3Nano")
 
@@ -164,28 +165,8 @@ class OnnxV3NanoEngine:
             return _trim_and_fade(np.clip(wav, -1.0, 1.0).astype(np.float32), self.SAMPLE_RATE)
 
 
-def _trim_and_fade(wav: np.ndarray, sr: int, thresh_db: float = -45.0, keep_s: float = 0.04,
-                   fade_s: float = 0.015) -> np.ndarray:
-    """Cut the silence the model generated around the speech (keeping ``keep_s``) and
-    fade both ends, so chunk joins never click and pauses come only from the gap list."""
-    if wav.size == 0:
-        return wav
-    win = max(1, int(0.01 * sr))
-    n_win = wav.size // win
-    if n_win > 0:
-        env = np.abs(wav[: n_win * win]).reshape(n_win, win).mean(1)
-        above = np.flatnonzero(env > 10 ** (thresh_db / 20))
-        if above.size:
-            a = max(0, int(above[0]) * win - int(keep_s * sr))
-            b = min(wav.size, (int(above[-1]) + 1) * win + int(keep_s * sr))
-            wav = wav[a:b]
-    n = min(int(fade_s * sr), wav.size // 2)
-    if n > 0:
-        ramp = (0.5 - 0.5 * np.cos(np.linspace(0, np.pi, n))).astype(np.float32)
-        wav = wav.copy()
-        wav[:n] *= ramp
-        wav[-n:] *= ramp[::-1]
-    return wav
+# ``_trim_and_fade`` giờ là ``vieneu_utils.core_utils.trim_and_fade`` (dùng chung với
+# join_audio_chunks của v3 Turbo); tên cũ giữ lại cho test/code ngoài.
 
 
 class V3NanoVieNeuTTS(BaseVieneuTTS):
@@ -323,12 +304,22 @@ class V3NanoVieNeuTTS(BaseVieneuTTS):
         """Chunk-level streaming: yields each finished chunk (no frame-level streaming —
         the flow model generates a whole chunk at once)."""
         spk, st = self._resolve_voice(voice, ref_audio)
-        for chunk in normalize_to_chunks_v3(text, max_chars=max_chars):
+        chunks, gaps = normalize_to_chunks_v3_with_gaps(text, max_chars=max_chars)
+        pauses = gaps_to_silence(gaps)
+        prev: Optional[np.ndarray] = None
+        for ci, chunk in enumerate(chunks):
             ph = phonemize_text_with_emotions(chunk)
             wav = self.engine.infer(ph, spk, st, steps=steps or self.default_steps,
                                     cfg=self.default_cfg if cfg is None else cfg, sway=sway, speed=speed)
-            if wav.size:
-                yield self._apply_watermark(wav) if apply_watermark else wav
+            if not wav.size:
+                continue
+            if prev is not None:
+                # Cùng khoảng nghỉ theo ranh giới như join_audio_chunks (engine đã trim mép).
+                pad = pause_pad_samples(prev, wav, self.sample_rate, pauses[ci - 1])
+                if pad > 0:
+                    yield np.zeros(pad, dtype=np.float32)
+            prev = wav
+            yield self._apply_watermark(wav) if apply_watermark else wav
 
     def infer_batch(
         self,

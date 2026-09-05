@@ -22,10 +22,11 @@ from .base import BaseVieneuTTS
 from ._v3_turbo_engine.rep_history import DEFAULT_REP_WINDOW
 from vieneu_utils.phonemize_text import (
     phonemize_text_with_emotions,
-    normalize_to_chunks_v3,
     normalize_to_chunks_v3_with_gaps,
 )
-from vieneu_utils.core_utils import join_audio_chunks, gaps_to_silence, max_expected_frames
+from vieneu_utils.core_utils import (
+    join_audio_chunks, gaps_to_silence, max_expected_frames, pause_pad_samples,
+)
 
 
 def _cap_frames(sampling: dict, cap: int) -> dict:
@@ -479,34 +480,39 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         **kwargs: Any,
     ) -> Generator[np.ndarray, None, None]:
         speaker_emb, ref_codes = self._resolve_ref(voice, ref_audio, denoise, use_ref_codes)
-        chunks = normalize_to_chunks_v3(text, max_chars=max_chars)
+        chunks, gaps = normalize_to_chunks_v3_with_gaps(text, max_chars=max_chars)
+        pauses = gaps_to_silence(gaps)
         # Prefer the engine's native frame-level streaming (low first-audio latency);
         # both the PyTorch and ONNX engines expose infer_stream. Fall back to one
         # full infer per chunk if not available.
         stream_fn = getattr(self.engine, "infer_stream", None)
-        for chunk in chunks:
+        sr = self.sample_rate
+        last_out: Optional[np.ndarray] = None   # mẩu audio cuối đã phát của chunk trước
+        for ci, chunk in enumerate(chunks):
             ph = phonemize_text_with_emotions(chunk)
             chunk_frames_cap = min(max_new_frames, max_expected_frames(ph))
-            if stream_fn is not None:
-                for sub in stream_fn(
-                    phonemes=ph, speaker_emb=speaker_emb, ref_codes=ref_codes,
-                    use_ref_codes=use_ref_codes,
-                    temperature=temperature, top_k=top_k, top_p=top_p,
-                    max_new_frames=chunk_frames_cap, repetition_penalty=repetition_penalty,
-                    repetition_window=repetition_window,
-                ):
-                    if sub is None or len(sub) == 0:
-                        continue
-                    yield self._apply_watermark(sub) if apply_watermark else sub
-            else:
-                wav = self.engine.infer(
-                    phonemes=ph, speaker_emb=speaker_emb, ref_codes=ref_codes,
-                    use_ref_codes=use_ref_codes,
-                    temperature=temperature, top_k=top_k, top_p=top_p,
-                    max_new_frames=chunk_frames_cap, repetition_penalty=repetition_penalty,
-                    repetition_window=repetition_window,
-                )
-                yield self._apply_watermark(wav) if apply_watermark else wav
+            gen_kwargs = dict(
+                phonemes=ph, speaker_emb=speaker_emb, ref_codes=ref_codes,
+                use_ref_codes=use_ref_codes,
+                temperature=temperature, top_k=top_k, top_p=top_p,
+                max_new_frames=chunk_frames_cap, repetition_penalty=repetition_penalty,
+                repetition_window=repetition_window,
+            )
+            subs = stream_fn(**gen_kwargs) if stream_fn is not None else (self.engine.infer(**gen_kwargs),)
+            first = True
+            for sub in subs:
+                if sub is None or len(sub) == 0:
+                    continue
+                if first and last_out is not None:
+                    # Khoảng nghỉ giữa hai text chunk = TỔNG theo loại ranh giới, cùng
+                    # bảng với join_audio_chunks. Audio chunk trước đã phát đi nên không
+                    # trim được, chỉ bù zeros cho đủ (đuôi model tự phát dài hơn thì giữ).
+                    pad = pause_pad_samples(last_out, sub, sr, pauses[ci - 1])
+                    if pad > 0:
+                        yield np.zeros(pad, dtype=np.float32)
+                first = False
+                last_out = sub
+                yield self._apply_watermark(sub) if apply_watermark else sub
 
     def infer_batch(
         self,
