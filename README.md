@@ -77,7 +77,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
      uv sync
      ```
    - **Option 2: GPU** — **v3 Turbo on GPU (PyTorch)**
-     > 💡 *Requires a CUDA NVIDIA GPU (CUDA ≥ 12.8). [NVIDIA Toolkit](https://developer.nvidia.com/cuda-downloads) recommended. The `cuda` extra adds only torch + transformers so **v3 Turbo runs on GPU** — inference is batched automatically on CUDA (same API, no code change). The legacy v1/v2 backends (LMDeploy, llama-cpp) live in `uv sync --group gpu`.*
+     > 💡 The `cuda` extra adds only torch + transformers so **v3 Turbo runs on GPU** — inference is batched automatically on CUDA (same API, no code change). The legacy v1/v2 backends (LMDeploy, llama-cpp) live in `uv sync --group gpu`.*
 
      ```bash
      uv sync --extra cuda
