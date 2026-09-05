@@ -169,7 +169,9 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         self.default_style = "tu_nhien"
         self._preset_voices: dict = {}
         self._default_voice: Optional[str] = None
+        self.backbone_repo = backbone_repo
         self._load_v3_voices()
+        self._load_repo_voices(backbone_repo)
 
         # Static-batching (GPU/PyTorch). Dựng lười ở lần batch đầu; None trên CPU/ONNX.
         self.max_batch_size = max(1, int(max_batch_size))
@@ -198,6 +200,50 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
             }
         self._default_voice = data.get("default_voice")
         logger.info(f"📢 Loaded {len(self._preset_voices)} preset voices (default: {self._default_voice})")
+
+    def _load_repo_voices(self, backbone_repo: Optional[str]) -> None:
+        """Voices shipped WITH a model (fine-tunes): ``voices_v3_turbo.json`` at the root of
+        the model folder / Hub repo, same layout as the built-in file. They are added on
+        top of the built-ins (same name = override) and the file's ``default_voice`` wins.
+        Missing file = nothing happens."""
+        if not backbone_repo:
+            return
+        import json
+        path = None
+        local = Path(backbone_repo)
+        if local.is_dir():
+            if (local / "voices_v3_turbo.json").is_file():
+                path = local / "voices_v3_turbo.json"
+        else:
+            try:
+                from huggingface_hub import hf_hub_download
+                path = Path(hf_hub_download(backbone_repo, "voices_v3_turbo.json"))
+            except Exception:
+                path = None
+        if path is None:
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"Ignoring unreadable voices file {path}: {e}")
+            return
+        n = 0
+        for name, v in data.get("presets", {}).items():
+            emb, codes = v.get("speaker_emb"), v.get("codes")
+            if emb is None:
+                continue
+            self._preset_voices[name] = {
+                "description": v.get("description", ""),
+                "gender": v.get("gender", ""),
+                "style": v.get("style", self.default_style),
+                "speaker_emb": np.asarray(emb, dtype=np.float32),
+                "codes": np.asarray(codes, dtype=np.int64) if codes is not None else None,
+            }
+            n += 1
+        if data.get("default_voice") in self._preset_voices:
+            self._default_voice = data["default_voice"]
+        if n:
+            logger.info(f"📢 Loaded {n} voice(s) from {backbone_repo} (default: {self._default_voice})")
 
     def list_preset_voices(self) -> List[tuple]:
         """Return ``[(label, voice_id), ...]`` for the built-in voices."""

@@ -34,10 +34,11 @@
 1. [🦜 Cài đặt & Giao diện Web](#installation)
 2. [📦 Sử dụng Python SDK](#sdk)
 3. [🐳 Server Chất lượng cao (Standard Mode)](#docker-remote)
-4. [🔬 Tổng quan mô hình](#backbones)
-5. [🚀 Lộ trình phát triển](#roadmap)
-6. [🤝 Hỗ trợ & Liên hệ](#support)
-7. [📑 Trích dẫn](#citation)
+4. [🎓 Fine-tune (LoRA)](#finetune)
+5. [🔬 Tổng quan mô hình](#backbones)
+6. [🚀 Lộ trình phát triển](#roadmap)
+7. [🤝 Hỗ trợ & Liên hệ](#support)
+8. [📑 Trích dẫn](#citation)
 
 ---
 
@@ -386,7 +387,27 @@ docker run --gpus all \
 
 ---
 
-## 🔬 4. Tổng quan mô hình <a name="backbones"></a>
+## 🎓 4. Fine-tune (LoRA) <a name="finetune"></a>
+
+v3 Turbo đã clone giọng từ một clip vài giây. Chỉ fine-tune bằng **LoRA** khi cần bám giọng chặt hơn clone, một phong cách đọc riêng (đọc truyện, tin tức, thuyết minh…), hoặc đọc tốt hơn trên miền văn bản của bạn. Một giọng cần khoảng **10–30 phút** audio sạch; 2–4 giờ chỉ khi gộp nhiều giọng vào một model. Chỉ vài triệu tham số được train nên GPU ~6 GB là đủ.
+
+```bash
+uv sync --extra finetune
+uv run python finetune/prepare_dataset.py --dataset-dir finetune/dataset --speaker my_voice   # CPU, không cần torch
+uv run python finetune/train_lora.py --data finetune/dataset/train.parquet --run my_voice --merge
+uv run python finetune/make_voice.py --audio ref.wav --name "Giọng của tôi" --out finetune/output/my_voice/merged
+```
+
+```python
+tts = Vieneu(mode="v3turbo", backbone_repo="finetune/output/my_voice/merged")   # hoặc repo Hub của bạn
+audio = tts.infer("Xin chào!", voice="Giọng của tôi")   # giọng đóng gói sẵn — không cần audio mẫu
+```
+
+Model merge giữ nguyên toàn bộ API của v3 Turbo (clone, preset, streaming) trên backend PyTorch/GPU. Định dạng dữ liệu, tuỳ chọn và mẹo: [`finetune/README.md`](finetune/README.md).
+
+---
+
+## 🔬 5. Tổng quan mô hình <a name="backbones"></a>
 
 | Model | Engine | Thiết bị | Sample Rate | Tính năng |
 |---|---|---|---|---|
@@ -398,7 +419,7 @@ docker run --gpus all \
 
 ---
 
-## 🚀 5. Lộ trình phát triển <a name="roadmap"></a>
+## 🚀 6. Lộ trình phát triển <a name="roadmap"></a>
 
 - [x] **VieNeu-TTS-v2**: Kiến trúc song ngữ chất lượng cao đầy đủ với **Chế độ Podcast** và **Clone giọng nói**.
 - [x] **VieNeu-Codec**: Neural codec tối ưu cho tiếng Việt (ONNX).
@@ -407,7 +428,7 @@ docker run --gpus all \
 
 ---
 
-## 🤝 6. Hỗ trợ & Liên hệ <a name="support"></a>
+## 🤝 7. Hỗ trợ & Liên hệ <a name="support"></a>
 
 - **Hugging Face:** [pnnbao-ump](https://huggingface.co/pnnbao-ump)
 - **Discord:** [Tham gia cộng đồng](https://discord.gg/yJt8kzjzWZ)
@@ -415,7 +436,7 @@ docker run --gpus all \
 - **Giấy phép:** Apache 2.0 (Sử dụng tự do).
 
 ---
-## 📑 7. Trích dẫn <a name="citation"></a>
+## 📑 8. Trích dẫn <a name="citation"></a>
 
 ```bibtex
 @misc{vieneutts2026,

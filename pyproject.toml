@@ -33,7 +33,7 @@ explicit = true
 
 [project]
 name = "vieneu"
-version = "3.5.4"
+version = "3.6.0"
 description = "Advanced on-device Vietnamese TTS with instant voice cloning"
 readme = "README_PYPI.md"
 license = { file = "LICENSE" }
@@ -116,6 +116,17 @@ pdf = [
 # Install with: pip install vieneu[watermark]
 watermark = [
     "resemble-perth>=1.0.1",
+]
+
+# LoRA fine-tuning of v3 Turbo (finetune/): GPU only.
+# Install with: uv sync --extra finetune   (or: pip install vieneu[finetune])
+finetune = [
+    "torch",
+    "transformers",
+    "peft>=0.13",
+    "accelerate",
+    "safetensors",
+    "pyarrow",
 ]
 
 [dependency-groups]

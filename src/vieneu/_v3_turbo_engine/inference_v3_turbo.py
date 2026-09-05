@@ -21,6 +21,7 @@ Credits
 from __future__ import annotations
 import math
 import threading
+from pathlib import Path
 import time
 from typing import Generator, List, Optional, Tuple, Union
 import numpy as np
@@ -93,7 +94,8 @@ class VieNeuTTSv3Turbo:
                 try:
                     from huggingface_hub import hf_hub_download
                     from .onnx_denoiser import OnnxDenoiser
-                    dn_path = hf_hub_download(checkpoint_path, denoiser_filename)
+                    _local = Path(checkpoint_path) / denoiser_filename
+                    dn_path = str(_local) if _local.is_file() else hf_hub_download(checkpoint_path, denoiser_filename)
                     self.denoiser = OnnxDenoiser(dn_path)
                 except Exception:
                     self.denoiser = None
