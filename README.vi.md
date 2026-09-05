@@ -375,14 +375,10 @@ Tùy chỉnh server để chạy các phiên bản cụ thể hoặc các model 
 docker run --gpus all pnnbao/vieneu-tts:serve --model pnnbao-ump/VieNeu-TTS-0.3B --tunnel
 ```
 
-**Serve model đã Fine-tuned cục bộ:**
-Nếu bạn đã merge LoRA adapter, hãy mount thư mục đầu ra của bạn vào container:
-```bash
-# Linux / macOS
-docker run --gpus all \
-  -v $(pwd)/finetune/output:/workspace/models \
-  pnnbao/vieneu-tts:serve \
-  --model /workspace/models/merged_model --tunnel
+**Model v3 Turbo đã fine-tune** không chạy qua container này (container chỉ phục vụ backend LMDeploy của v1/v2). Hãy nạp bằng SDK — xem [Fine-tune (LoRA)](#finetune):
+
+```python
+tts = Vieneu(mode="v3turbo", backbone_repo="finetune/output/my_voice/merged")
 ```
 
 ---

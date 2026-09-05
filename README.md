@@ -396,14 +396,10 @@ Customize the server to run specific versions or your own fine-tuned models.
 docker run --gpus all pnnbao/vieneu-tts:serve --model pnnbao-ump/VieNeu-TTS-0.3B --tunnel
 ```
 
-**Serve a Local Fine-tuned Model:**
-If you have merged a LoRA adapter, mount your output directory to the container:
-```bash
-# Linux / macOS
-docker run --gpus all \
-  -v $(pwd)/finetune/output:/workspace/models \
-  pnnbao/vieneu-tts:serve \
-  --model /workspace/models/merged_model --tunnel
+**Fine-tuned v3 Turbo models** are not served by this container (it hosts the v1/v2 LMDeploy backends). Load them with the SDK instead — see [Fine-tuning (LoRA)](#finetune):
+
+```python
+tts = Vieneu(mode="v3turbo", backbone_repo="finetune/output/my_voice/merged")
 ```
 
 ---
