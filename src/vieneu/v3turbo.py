@@ -461,38 +461,6 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
                 wavs[j] = w
         return wavs
 
-        spf = self.sample_rate / 12.5            # samples per codec frame
-
-        def _score(wav: np.ndarray, syl: int, cap: int):
-            """(bad, bursts, n_frames). Đo A/B 720 chunk ngắn (2026-09): MỌI ca bịa
-            thêm từ đều là chunk 1 tiếng chạy tới sát trần frame (12-13/13) — chunk
-            1 tiếng bình thường EOS ở 6-9 frame. Chạm trần ở chunk <= 2 tiếng là
-            dấu hiệu chắc chắn nhất; đếm cụm âm là lớp phụ."""
-            frames = int(round(len(wav) / spf))
-            bursts = count_speech_bursts(wav, self.sample_rate)
-            hit_cap = syl <= 2 and frames >= cap - 1
-            return (bursts > syl) or hit_cap, bursts, frames
-
-        for i, ph in enumerate(phs):
-            syl = syllable_count(ph)
-            if syl == 0 or syl > BABBLE_MAX_SYLLABLES or "<|emotion_" in ph:
-                continue
-            cap = max_expected_frames(ph)
-            best = wavs[i]
-            bad, b, fr = _score(best, syl, cap)
-            tries = 0
-            while bad and tries < self.babble_retries:
-                cand = regen(ph)
-                cbad, cb, cfr = _score(cand, syl, cap)
-                if (not cbad and bad) or (cbad == bad and (cb < b or (cb == b and len(cand) < len(best)))):
-                    best, bad, b, fr = cand, cbad, cb, cfr
-                tries += 1
-            if tries:
-                logger.info(f"🔁 babble guard: chunk {i} ({syl} tiếng): {b} cụm âm, {fr}/{cap} frame sau {tries} lần sinh lại{' — vẫn nghi ngờ' if bad else ''}")
-            wavs[i] = best
-        return wavs
-
-    # ── Public API ───────────────────────────────────────────────────────────
     def infer(
         self,
         text: str,
