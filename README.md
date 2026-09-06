@@ -166,7 +166,7 @@ for label, voice_id in voices:
 #     "Nếu thấy hữu ích, các bạn nhớ để lại một lượt thích và chia sẻ video này cho mọi người nhé!",
 # ] * 10   # 30 texts — enough to fill the batch and really show the GPU throughput win
 # t0 = time.time()
-# audios = vieneu.infer_batch(texts, voice="Adam")
+# audios = vieneu.infer_batch(texts, voice="Minh Quân")
 # elapsed = time.time() - t0
 # total_audio = sum(len(a) for a in audios) / 48_000
 # print(f"⚡ {len(texts)} texts | audio {total_audio:.1f}s | wall {elapsed:.1f}s | RTF {elapsed/total_audio:.3f}")
@@ -181,7 +181,7 @@ for label, voice_id in voices:
 ```python
 from vieneu import Vieneu
 vieneu = Vieneu(backend="onnx")                      # force ONNX/CPU — the streaming path (int8)
-for chunk in vieneu.infer_stream("Xin chào các bạn!", voice="Adam"):
+for chunk in vieneu.infer_stream("Xin chào các bạn!", voice="Minh Quân"):
     play(chunk)                                   # np.float32 @ 48 kHz — play/write as it arrives
 ```
 
@@ -195,9 +195,9 @@ uv run python -m apps.web_stream                  # → http://127.0.0.1:8001
 
 The v3 Turbo engine includes **23 curated preset voices** covering **3 regions** (North, Central, South) with diverse genders and speaking characters:
 
-- **Northern (Bắc)**: e.g. Minh Đức, Phạm Tuyên, Trúc Ly, Mai Anh, Quỳnh Anh, Xuân Vĩnh, Anh Khôi, Mạnh Dũng, Minh Quân
+- **Northern (Bắc)**: e.g. Minh Quân *(default)*, Minh Đức, Phạm Tuyên, Trúc Ly, Mai Anh, Quỳnh Anh, Xuân Vĩnh, Anh Khôi, Mạnh Dũng
 - **Central (Trung)**: Quang Sơn, Ngọc Trân
-- **Southern (Nam)**: e.g. Adam *(default)*, Thái Sơn, Thùy Dung, Mỹ Duyên
+- **Southern (Nam)**: e.g. Adam, Thái Sơn, Thùy Dung, Mỹ Duyên
 
 ### Reading style — **deprecated** ⚠️
 
@@ -213,10 +213,10 @@ The v3 Turbo engine includes **23 curated preset voices** covering **3 regions**
 
 ```python
 # Old code — still runs, but `style` is ignored
-audio = vieneu.infer("Bản tin sáng nay.", voice="Adam", style="tin_tuc")
+audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Quân", style="tin_tuc")
 
 # New code — pick the reading character through the voice / reference clip instead
-audio = vieneu.infer("Bản tin sáng nay.", voice="Adam")
+audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Quân")
 ```
 
 ### Emotion cues (experimental)
@@ -224,7 +224,7 @@ audio = vieneu.infer("Bản tin sáng nay.", voice="Adam")
 Inline tags are supported anywhere in the text: `[cười]` (chuckle), `[thở dài]` (sigh), `[hắng giọng]` (clear throat).
 
 ```python
-audio = vieneu.infer("Nghe hay quá đi [cười]. Để mình nói tiếp [hắng giọng].", voice="Adam")
+audio = vieneu.infer("Nghe hay quá đi [cười]. Để mình nói tiếp [hắng giọng].", voice="Minh Quân")
 ```
 
 ### Voice cloning
@@ -302,7 +302,7 @@ RTF = compute time ÷ audio duration (lower is faster; 0.22 = 4.5× faster than 
 from vieneu import Vieneu
 
 tts = Vieneu(mode="v3nano")                      # ONNX, CPU, torch-free
-audio = tts.infer("Xin chào, mình là giọng đọc của VieNeu Nano.", voice="Adam")
+audio = tts.infer("Xin chào, mình là giọng đọc của VieNeu Nano.", voice="Minh Quân")
 tts.save(audio, "nano.wav")                      # 24 kHz
 
 tts.list_preset_voices()                         # Adam, Ái Hân, Mỹ Duyên, Đức Trí, Hữu Quân, Xuân Tiên, Mai Anh, Trúc Ly, Anh Khôi, Minh Quân, Mạnh Dũng

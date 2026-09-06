@@ -146,7 +146,7 @@ vieneu = Vieneu()
 
 # 1. Giọng dựng sẵn theo tên — không cần audio mẫu
 print("🔊 Đang sinh giọng nói...")
-audio = vieneu.infer("Xin chào, đây là VieNeu-TTS.", voice="Adam")
+audio = vieneu.infer("Xin chào, đây là VieNeu-TTS.", voice="Minh Quân")
 vieneu.save(audio, "output.wav")
 print("✅ Đã lưu vào output.wav")
 
@@ -169,7 +169,7 @@ for label, voice_id in voices:
 #     "Nếu thấy hữu ích, các bạn nhớ để lại một lượt thích và chia sẻ video này cho mọi người nhé!",
 # ] * 10   # 30 câu — đủ lấp đầy batch để thấy rõ sức mạnh throughput của GPU
 # t0 = time.time()
-# audios = vieneu.infer_batch(texts, voice="Adam")
+# audios = vieneu.infer_batch(texts, voice="Minh Quân")
 # elapsed = time.time() - t0
 # total_audio = sum(len(a) for a in audios) / 48_000
 # print(f"⚡ {len(texts)} câu | audio {total_audio:.1f}s | thời gian {elapsed:.1f}s | RTF {elapsed/total_audio:.3f}")
@@ -184,7 +184,7 @@ v3 Turbo hỗ trợ **streaming theo frame**: audio ra sau ~300 ms và generator
 ```python
 from vieneu import Vieneu
 vieneu = Vieneu(backend="onnx")                      # ép ONNX/CPU — đường dành cho streaming (int8)
-for chunk in vieneu.infer_stream("Xin chào các bạn!", voice="Adam"):
+for chunk in vieneu.infer_stream("Xin chào các bạn!", voice="Minh Quân"):
     play(chunk)                                   # np.float32 @ 48 kHz — phát/ghi ngay khi có
 ```
 
@@ -200,9 +200,9 @@ uv run python -m apps.web_stream                  # → http://localhost:8001
 
 v3 Turbo đi kèm **23 giọng dựng sẵn** phủ **3 miền** (Bắc, Trung, Nam), đủ giới tính và tính cách đọc:
 
-- **Miền Bắc**: Minh Đức, Phạm Tuyên, Trúc Ly, Mai Anh, Quỳnh Anh, Xuân Vĩnh, Anh Khôi, Mạnh Dũng, Minh Quân, …
+- **Miền Bắc**: Minh Quân *(mặc định)*, Minh Đức, Phạm Tuyên, Trúc Ly, Mai Anh, Quỳnh Anh, Xuân Vĩnh, Anh Khôi, Mạnh Dũng, …
 - **Miền Trung**: Quang Sơn, Ngọc Trân
-- **Miền Nam**: Adam *(mặc định)*, Thái Sơn, Thùy Dung, Mỹ Duyên, …
+- **Miền Nam**: Adam, Thái Sơn, Thùy Dung, Mỹ Duyên, …
 
 ### Phong cách đọc — **đã bỏ (deprecated)** ⚠️
 
@@ -217,10 +217,10 @@ v3 Turbo đi kèm **23 giọng dựng sẵn** phủ **3 miền** (Bắc, Trung, 
 
 ```python
 # Code cũ — vẫn chạy, nhưng `style` bị bỏ qua
-audio = vieneu.infer("Bản tin sáng nay.", voice="Adam", style="tin_tuc")
+audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Quân", style="tin_tuc")
 
 # Code mới — chọn chất giọng/cách đọc bằng chính giọng mẫu hoặc clip reference
-audio = vieneu.infer("Bản tin sáng nay.", voice="Adam")
+audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Quân")
 ```
 
 ### Tag cảm xúc (thử nghiệm)
@@ -228,7 +228,7 @@ audio = vieneu.infer("Bản tin sáng nay.", voice="Adam")
 Chèn trực tiếp trong văn bản: `[cười]`, `[thở dài]`, `[hắng giọng]`.
 
 ```python
-audio = vieneu.infer("Nghe hay quá đi [cười]. Để mình nói tiếp [hắng giọng].", voice="Adam")
+audio = vieneu.infer("Nghe hay quá đi [cười]. Để mình nói tiếp [hắng giọng].", voice="Minh Quân")
 ```
 
 > [!TIP]
@@ -306,7 +306,7 @@ RTF = thời gian tính ÷ thời lượng audio (càng nhỏ càng nhanh; 0.22 
 from vieneu import Vieneu
 
 tts = Vieneu(mode="v3nano")                      # ONNX, CPU, không cần torch
-audio = tts.infer("Xin chào, mình là giọng đọc của VieNeu Nano.", voice="Adam")
+audio = tts.infer("Xin chào, mình là giọng đọc của VieNeu Nano.", voice="Minh Quân")
 tts.save(audio, "nano.wav")                      # 24 kHz
 
 tts.list_preset_voices()                         # Adam, Ái Hân, Mỹ Duyên, Đức Trí, Hữu Quân, Xuân Tiên, Mai Anh, Trúc Ly, Anh Khôi, Minh Quân, Mạnh Dũng

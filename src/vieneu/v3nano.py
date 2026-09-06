@@ -3,7 +3,7 @@ VieNeu-TTS v3 Nano backend (ONNX, CPU-only, torch-free).
 =========================================================
     from vieneu import Vieneu
     tts = Vieneu(mode="v3nano")                       # v3 Turbo stays the default
-    wav = tts.infer("Xin chào", voice="Adam")         # preset voice
+    wav = tts.infer("Xin chào", voice="Minh Quân")         # preset voice
     tts.save(wav, "out.wav")                          # 24 kHz
 
 v3 Nano is a 48M-parameter flow-matching model for machines where v3 Turbo is too

@@ -55,7 +55,7 @@ vieneu = Vieneu()                    # fp32 backbone (default, max quality)
 
 # 1. Built-in voice by name — no reference needed
 print("🔊 Generating speech...")
-audio = vieneu.infer("Xin chào, đây là VieNeu-TTS.", voice="Adam")
+audio = vieneu.infer("Xin chào, đây là VieNeu-TTS.", voice="Minh Quân")
 vieneu.save(audio, "output.wav")
 print("✅ Saved to output.wav")
 
@@ -68,10 +68,10 @@ for label, voice_id in voices:
 # 2. Reading style: DEPRECATED on v3 Turbo — `style` is accepted but IGNORED. The style
 #    is already implied by the reference (preset voice / cloned clip), so output is
 #    always the natural reading style. Just pick the voice:
-audio = vieneu.infer("Bản tin sáng nay.", voice="Adam")
+audio = vieneu.infer("Bản tin sáng nay.", voice="Minh Quân")
 
 # 3. Emotion / non-verbal cues — EXPERIMENTAL: [cười] [thở dài] [hắng giọng]
-audio = vieneu.infer("Nghe hay quá đi [cười].", voice="Adam")
+audio = vieneu.infer("Nghe hay quá đi [cười].", voice="Minh Quân")
 
 # 4. ⚡ Batch on GPU: infer_batch() runs many texts in ONE batched forward — same API.
 #    On a CUDA GPU the chunks from every text share each forward step (big throughput
@@ -86,7 +86,7 @@ audio = vieneu.infer("Nghe hay quá đi [cười].", voice="Adam")
 #     "Nếu thấy hữu ích, các bạn nhớ để lại một lượt thích và chia sẻ video này cho mọi người nhé!",
 # ] * 10   # 30 texts — enough to fill the batch and really show the GPU throughput win
 # t0 = time.time()
-# audios = vieneu.infer_batch(texts, voice="Adam")
+# audios = vieneu.infer_batch(texts, voice="Minh Quân")
 # elapsed = time.time() - t0
 # total_audio = sum(len(a) for a in audios) / 48_000
 # print(f"⚡ {len(texts)} texts | audio {total_audio:.1f}s | wall {elapsed:.1f}s | RTF {elapsed/total_audio:.3f}")
@@ -100,7 +100,7 @@ v3 Turbo streams frame-by-frame (first audio ~300 ms, RTF < 1 on CPU). Streaming
 
 ```python
 vieneu = Vieneu(backend="onnx")   # force ONNX/CPU — the streaming path (int8)
-for chunk in vieneu.infer_stream("Xin chào các bạn!", voice="Adam"):
+for chunk in vieneu.infer_stream("Xin chào các bạn!", voice="Minh Quân"):
     play(chunk)   # np.float32 @ 48 kHz, play/write as it arrives
 ```
 
@@ -135,7 +135,7 @@ v3 Turbo stays the default. `Vieneu(mode="v3nano")` loads a 48M-parameter flow m
 
 ```python
 tts = Vieneu(mode="v3nano")
-audio = tts.infer("Xin chào, mình là giọng đọc của VieNeu Nano.", voice="Adam")   # 24 kHz
+audio = tts.infer("Xin chào, mình là giọng đọc của VieNeu Nano.", voice="Minh Quân")   # 24 kHz
 ```
 
 ---
