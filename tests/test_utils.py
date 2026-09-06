@@ -333,15 +333,18 @@ def test_edge_silence_and_trim_and_fade():
     assert trim_and_fade(np.zeros(0, np.float32), sr).size == 0
 
 
-@pytest.mark.parametrize("tail_s,lead_s", [(0.30, 0.06), (0.0, 0.0), (0.05, 0.20)])
-def test_join_audio_chunks_silence_ps_is_total_pause(tail_s, lead_s):
-    """Đuôi chunk trước / đầu chunk sau dài hay ngắn thì khoảng nghỉ thật vẫn = silence_ps."""
+@pytest.mark.parametrize("tail_s,lead_s", [(0.30, 0.06), (0.0, 0.0), (0.05, 0.20), (0.60, 0.30)])
+def test_join_audio_chunks_silence_ps_is_min_pause(tail_s, lead_s):
+    """silence_ps là nghỉ TỐI THIỂU: đuôi/đầu ngắn thì bù zeros cho đủ, dài hơn thì giữ nguyên
+    (không cắt mép audio model sinh)."""
     sr = 16000
     a = _tone_with_silence(sr, 0.05, 0.4, tail_s)
     b = _tone_with_silence(sr, lead_s, 0.4, 0.05, freq=660.0)
-    for pause in (0.14, 0.32, 0.55):
+    for pause in (0.30, 0.50, 0.70):
         joined = join_audio_chunks([a, b], sr, silence_ps=[pause])
-        assert abs(_measured_pause_ms(joined, sr) - pause * 1000) <= 25
+        expect = max(pause, tail_s + lead_s)
+        assert abs(_measured_pause_ms(joined, sr) - expect * 1000) <= 25
+        assert joined.size >= a.size + b.size          # audio không bị cắt, chỉ chèn thêm
 
 
 def test_join_audio_chunks_silence_ps_gap_table():

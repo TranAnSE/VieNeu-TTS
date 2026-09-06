@@ -61,18 +61,22 @@ class PhoneChunk:
 
 # ─── Audio utils ─────────────────────────────────────────────────────────────
 
-# TỔNG khoảng nghỉ (giây) giữa hai chunk tuỳ RANH GIỚI đã cắt: ngắt đoạn (\n)
-# nghỉ dài nhất, hết câu (.!?) nghỉ vừa, ngắt trong câu (,;: hoặc cắt cưỡng bức)
-# nghỉ ngắn. Đây là khoảng nghỉ THẬT nghe được (im lặng đuôi chunk trước + zeros
-# chèn + im lặng đầu chunk sau), không phải phần "chèn thêm": ``join_audio_chunks``
-# cắt im lặng thừa ở mép rồi bù zeros cho đủ con số này. Trước đây bảng này là
-# phần chèn thêm (0.35/0.18/0.04) và join không trim, nên khoảng nghỉ thật phụ
-# thuộc giọng: preset v3 Turbo tự phát ~300 ms im lặng trước EOS (phẩy nghỉ
-# ~400 ms, gần bằng hết câu) còn giọng clone hầu như không (phẩy chỉ ~100 ms,
-# nghe như chunk "đè" nhau). Dùng cho đường v3 khi có metadata gap từ splitter.
-V3_GAP_SILENCE = {"para": 0.55, "sentence": 0.32, "minor": 0.14}
+# Khoảng nghỉ TỐI THIỂU (giây) giữa hai chunk tuỳ RANH GIỚI đã cắt: ngắt đoạn
+# (xuống dòng) nghỉ dài nhất, hết câu (.!?) nghỉ vừa, ngắt trong câu (,;: hoặc cắt cưỡng
+# bức) nghỉ ngắn. Đây là khoảng nghỉ THẬT nghe được (im lặng đuôi chunk trước +
+# zeros chèn + im lặng đầu chunk sau): ``join_audio_chunks`` giữ nguyên audio
+# model sinh và chỉ chèn zeros khi tổng im lặng ở khe chưa đủ con số này; đuôi
+# tự nhiên dài hơn thì giữ nguyên. Lịch sử: bảng gốc (0.35/0.18/0.04) là phần
+# chèn THÊM không đo đuôi, nên khoảng nghỉ thật phụ thuộc giọng (preset v3 Turbo
+# tự phát ~300 ms im lặng trước EOS, giọng clone hầu như không -> chunk "đè"
+# nhau); v3.5.1 cắt mép rồi bù cho đúng bằng bảng (0.55/0.32/0.14) — cắt mép bị
+# bỏ 09/2026 vì làm mất đuôi tự nhiên mà không cần thiết (phần cắt < -45 dB).
+# Giá trị hiện tại theo khoảng nghỉ model TỰ sinh khi cả câu nằm trong một chunk
+# (đo trên 23 preset v3 Turbo, 09/2026): phẩy ~0.30–0.45 s, hết câu ~0.50–0.65 s.
+V3_GAP_SILENCE = {"para": 0.70, "sentence": 0.50, "minor": 0.30}
 
-# Chuẩn hoá mép chunk trước khi ghép (xem ``trim_and_fade``).
+# Cắt/fade mép chunk (``trim_and_fade``): còn dùng ở engine v3 Nano cho đầu ra flow
+# model; join_audio_chunks đường v3 Turbo KHÔNG cắt mép nữa (09/2026).
 EDGE_THRESH_DB = -45.0   # ngưỡng "có tiếng" trên envelope mean|x| cửa sổ 10 ms
 EDGE_KEEP_S = 0.04       # im lặng giữ lại mỗi đầu sau khi cắt
 EDGE_FADE_S = 0.015      # fade cosine ở hai mép để không click
@@ -198,13 +202,13 @@ def join_audio_chunks(
 ) -> np.ndarray:
     """Ghép các chunk audio.
 
-    ``silence_ps`` (tuỳ chọn, đường v3): ``silence_ps[i]`` là TỔNG khoảng nghỉ
-    (giây) mong muốn giữa chunk ``i`` và ``i+1`` theo loại ranh giới. Mỗi chunk
-    được :func:`trim_and_fade` (cắt im lặng model tự sinh, giữ 40 ms, fade mép)
-    rồi chèn zeros vừa đủ để im-lặng-đuôi + zeros + im-lặng-đầu = ``silence_ps[i]``
-    — nhờ đó khoảng nghỉ không phụ thuộc giọng (preset tự phát đuôi dài, clone
-    hầu như không). Khi truyền ``silence_ps`` thì ``silence_p``/``crossfade_p``
-    bị bỏ qua; khe thiếu giá trị nghỉ 0 (chỉ trim + nối).
+    ``silence_ps`` (tuỳ chọn, đường v3): ``silence_ps[i]`` là khoảng nghỉ TỐI
+    THIỂU (giây) giữa chunk ``i`` và ``i+1`` theo loại ranh giới. Audio từng chunk
+    giữ NGUYÊN (không cắt mép, không fade); :func:`pause_pad_samples` đo im lặng
+    đuôi chunk trước + đầu chunk sau và chỉ chèn zeros cho phần còn thiếu — giọng
+    clone đuôi ngắn được bù cho đủ, preset đuôi dài giữ nhịp tự nhiên. Khi truyền
+    ``silence_ps`` thì ``silence_p``/``crossfade_p`` bị bỏ qua; khe thiếu giá trị
+    nghỉ 0 (nối thẳng).
 
     Không có ``silence_ps`` (đường v1/v2): chèn ``silence_p`` giây zeros, hoặc
     crossfade ``crossfade_p`` giây, hoặc nối thẳng — giữ nguyên như cũ.
@@ -213,14 +217,13 @@ def join_audio_chunks(
         return np.array([], dtype=np.float32)
 
     if silence_ps is not None:
-        trimmed = [trim_and_fade(c, sr) for c in chunks]
-        parts: List[np.ndarray] = [trimmed[0]]
-        for i in range(1, len(trimmed)):
+        parts: List[np.ndarray] = [chunks[0]]
+        for i in range(1, len(chunks)):
             pause_s = silence_ps[i - 1] if i - 1 < len(silence_ps) else 0.0
-            pad = pause_pad_samples(trimmed[i - 1], trimmed[i], sr, pause_s)
+            pad = pause_pad_samples(chunks[i - 1], chunks[i], sr, pause_s)
             if pad > 0:
                 parts.append(np.zeros(pad, dtype=np.float32))
-            parts.append(trimmed[i])
+            parts.append(chunks[i])
         return np.concatenate(parts) if len(parts) > 1 else parts[0]
 
     if len(chunks) == 1:
