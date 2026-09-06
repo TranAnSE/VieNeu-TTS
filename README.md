@@ -39,7 +39,7 @@
 
 1. [🦜 Installation & Web UI](#installation)
 2. [📦 Using the Python SDK](#sdk)
-3. [🐳 High-Quality Server (Standard Mode)](#docker-remote)
+3. [🐳 API Server (v2 — deprecated)](#docker-remote)
 4. [🎓 Fine-tuning (LoRA)](#finetune)
 5. [🔬 Model Overview](#backbones)
 6. [🚀 Roadmap](#roadmap)
@@ -315,11 +315,19 @@ Knobs: `steps` (Euler steps, 16 default; 8 ≈ 2× faster, slightly rougher — 
 
 ---
 
-## 🐳 3. High-Quality Server (Standard Mode) <a name="docker-remote"></a>
+## 🐳 3. API Server (v2 — deprecated) <a name="docker-remote"></a>
+
+> [!WARNING]
+> **Deprecated.** This LMDeploy server and the `remote` mode only work with **VieNeu-TTS v2**, which is no longer updated. They are kept for existing deployments.
+>
+> A **server release of VieNeu-TTS v3** (the full GPU model, built for API deployment) is coming soon. **v3 Turbo** is the on-device version for personal use: run it through the SDK, the [Docker Web UI](#installation), or the FastAPI streaming demo in [`apps/web_stream.py`](apps/web_stream.py) in the meantime.
+
+<details>
+<summary><b>Legacy v2 server instructions (Docker + remote mode)</b></summary>
 
 Deploy VieNeu-TTS as a high-performance API Server (powered by LMDeploy) with a single command.
 
-### 1. Run with Docker (Recommended)
+### 1. Run with Docker
 
 **Requirement**: [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) is required for GPU support.
 
@@ -403,6 +411,8 @@ docker run --gpus all pnnbao/vieneu-tts:serve --model pnnbao-ump/VieNeu-TTS-0.3B
 tts = Vieneu(mode="v3turbo", backbone_repo="finetune/output/my_voice/merged")
 ```
 
+</details>
+
 ---
 
 ## 🎓 4. Fine-tuning (LoRA) <a name="finetune"></a>
@@ -440,12 +450,11 @@ The merged model keeps the full v3 Turbo API (cloning, presets, streaming) on th
 
 ## 🚀 6. Roadmap <a name="roadmap"></a>
 
-- [x] **VieNeu-TTS-v2**: Full high-fidelity bilingual architecture with **Podcast Mode** and **Voice Cloning**.
-- [x] **VieNeu-Codec**: Optimized neural codec for Vietnamese (ONNX).
-- [x] **Turbo Voice Cloning**: Bringing instant cloning to the lightweight Turbo engine.
-- [x] **VieNeu-TTS v3 Turbo**: New from-scratch 48 kHz architecture — built-in default voices (speaker tokens), experimental emotion cues, batched generation & multi-speaker conversation.
-- [ ] **VieNeu-TTS v3 (full release)**: Complete v3 with finalized quality, stable emotion control, more default voices & streaming server.
-- [ ] **Mobile SDK**: Official support for Android/iOS deployment.
+- [x] **VieNeu-TTS v3 Turbo** *(on-device, personal use)*: from-scratch 48 kHz architecture — preset voices, instant voice cloning, emotion cues, batched generation, multi-speaker conversation, frame-level streaming; torch-free on CPU.
+- [x] **VieNeu-TTS v3 Nano** *(preview)*: 48M flow-matching model for weak CPUs / edge devices — 11 preset voices + cloning, torch-free.
+- [x] **LoRA fine-tuning** for v3 Turbo — train your own voice or reading style on one consumer GPU.
+- [ ] **VieNeu-TTS v3 (GPU, server release)**: the full v3 model for API / server deployment — finalized quality, stable emotion control, more voices.
+- [ ] **Mobile SDK**: official Android / iOS deployment.
 
 ---
 
@@ -461,7 +470,7 @@ The merged model keeps the full v3 Turbo API (cloning, presets, streaming) on th
 
 ```bibtex
 @misc{vieneutts2026,
-  title        = {VieNeu-TTS-v2: Advanced Vietnamese Text-to-Speech with Podcast and Code-Switching Support},
+  title        = {VieNeu-TTS: Advanced Vietnamese Text-to-Speech with Instant Voice Cloning},
   author       = {Pham Nguyen Ngoc Bao},
   year         = {2026},
   publisher    = {Hugging Face},
