@@ -26,6 +26,7 @@ from vieneu_utils.phonemize_text import (
 )
 from vieneu_utils.core_utils import (
     join_audio_chunks, gaps_to_silence, max_expected_frames, pause_pad_samples,
+    BABBLE_MAX_RETRIES,
 )
 
 
@@ -117,10 +118,12 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         onnx_subfolder: Optional[str] = None,   # override thủ công subfolder; None → suy từ `precision`
         threads: int = 0,   # ONNX/CPU intra-op threads; 0 = mặc định engine (~nhân vật lý, cap 8). Đặt số cụ thể để tinh chỉnh.
         max_batch_size: int = 32,   # GPU/PyTorch: trần số chunk gộp vào một forward (static batching). Batch thực = min(số_chunk, max_batch_size). Bỏ qua trên CPU/ONNX.
+        babble_retries: int = BABBLE_MAX_RETRIES,   # chunk <= 3 tiếng mà "nói thêm" (nhiều cụm âm hơn số tiếng) thì sinh lại tối đa N lần; 0 = tắt
         **kwargs: Any,
     ):
         super().__init__()
         self.sample_rate = 48_000
+        self.babble_retries = max(0, int(babble_retries))
 
         # `precision` chỉ áp cho đường ONNX/CPU (chọn subfolder graph int8 vs fp32).
         # Đường PyTorch/GPU dùng torch fp32/bf16, không liên quan.
@@ -161,6 +164,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
                 dtype=dtype,
             )
             self.backend = "pytorch"
+        self.engine.babble_retries = self.babble_retries   # guard chạy ở tầng engine
         logger.info(f"✅ VieNeu-TTS v3 Turbo ready (backend={self.backend})")
 
         # Style is deprecated on v3 Turbo: it is implied by the reference (speaker
@@ -403,6 +407,7 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         if self._batch_engine is None:
             from .v3_turbo_serve import V3TurboBatchEngine
             self._batch_engine = V3TurboBatchEngine(self.engine)
+            self._batch_engine.babble_retries = self.babble_retries
         return self._batch_engine
 
     def _infer_chunks(
@@ -427,19 +432,19 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
         """
         n = len(chunks)
         engine = self._get_batch_engine() if (batch_size > 1 and n > 1) else None
+        phs = [phonemize_text_with_emotions(c) for c in chunks]
+
+        def _one(ph: str) -> np.ndarray:
+            return self.engine.infer(
+                phonemes=ph, speaker_emb=speaker_emb, ref_codes=ref_codes,
+                use_ref_codes=use_ref_codes,
+                **_cap_frames(sampling, max_expected_frames(ph)),
+            )
 
         if engine is None:
-            wavs: List[np.ndarray] = []
-            for chunk in chunks:
-                ph = phonemize_text_with_emotions(chunk)
-                wavs.append(self.engine.infer(
-                    phonemes=ph, speaker_emb=speaker_emb, ref_codes=ref_codes,
-                    use_ref_codes=use_ref_codes,
-                    **_cap_frames(sampling, max_expected_frames(ph)),
-                ))
+            wavs: List[np.ndarray] = [_one(ph) for ph in phs]
             return wavs
 
-        phs = [phonemize_text_with_emotions(c) for c in chunks]
         order = sorted(range(n), key=lambda i: len(phs[i]))
         wavs = [None] * n
         for i in range(0, n, batch_size):
@@ -454,6 +459,37 @@ class V3TurboVieNeuTTS(BaseVieneuTTS):
             group_cap = max(max_expected_frames(phs[j]) for j in idxs)
             for j, w in zip(idxs, engine.generate_batch(reqs, **_cap_frames(sampling, group_cap))):
                 wavs[j] = w
+        return wavs
+
+        spf = self.sample_rate / 12.5            # samples per codec frame
+
+        def _score(wav: np.ndarray, syl: int, cap: int):
+            """(bad, bursts, n_frames). Đo A/B 720 chunk ngắn (2026-09): MỌI ca bịa
+            thêm từ đều là chunk 1 tiếng chạy tới sát trần frame (12-13/13) — chunk
+            1 tiếng bình thường EOS ở 6-9 frame. Chạm trần ở chunk <= 2 tiếng là
+            dấu hiệu chắc chắn nhất; đếm cụm âm là lớp phụ."""
+            frames = int(round(len(wav) / spf))
+            bursts = count_speech_bursts(wav, self.sample_rate)
+            hit_cap = syl <= 2 and frames >= cap - 1
+            return (bursts > syl) or hit_cap, bursts, frames
+
+        for i, ph in enumerate(phs):
+            syl = syllable_count(ph)
+            if syl == 0 or syl > BABBLE_MAX_SYLLABLES or "<|emotion_" in ph:
+                continue
+            cap = max_expected_frames(ph)
+            best = wavs[i]
+            bad, b, fr = _score(best, syl, cap)
+            tries = 0
+            while bad and tries < self.babble_retries:
+                cand = regen(ph)
+                cbad, cb, cfr = _score(cand, syl, cap)
+                if (not cbad and bad) or (cbad == bad and (cb < b or (cb == b and len(cand) < len(best)))):
+                    best, bad, b, fr = cand, cbad, cb, cfr
+                tries += 1
+            if tries:
+                logger.info(f"🔁 babble guard: chunk {i} ({syl} tiếng): {b} cụm âm, {fr}/{cap} frame sau {tries} lần sinh lại{' — vẫn nghi ngờ' if bad else ''}")
+            wavs[i] = best
         return wavs
 
     # ── Public API ───────────────────────────────────────────────────────────

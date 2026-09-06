@@ -270,21 +270,25 @@ def test_merge_short_chunks_emotion_token_does_not_count_as_text():
 # --- Trần frame theo độ dài phoneme ---
 
 def test_max_expected_frames_monotonic_and_bounded():
-    short = max_expected_frames("aaa bbb ccc")
-    long = max_expected_frames("aaa bbb ccc " * 30)
-    assert _FRAME_CAP_SLACK < short < long
+    short = max_expected_frames("aaa bbb ccc")          # 3 tiếng -> trần theo âm tiết (13 + 2*5)
+    long = max_expected_frames("aaa bbb ccc " * 30)     # 90 tiếng -> công thức theo phoneme
+    assert 0 < short < long
+    assert max_expected_frames("aaa bbb ccc ddd eee") > _FRAME_CAP_SLACK   # > 4 tiếng: công thức thường
     # Chunk dài hết cỡ (max_chars=256 -> phoneme ~300+) phải vượt default 300
     # để trần không bao giờ bó chunk bình thường.
     assert long > 300
 
 
 def test_max_expected_frames_single_word_hard_cap():
-    """Một từ duy nhất -> chặn cứng ~1 giây (13 frame @ 12.5 fps)."""
-    from vieneu_utils.core_utils import SINGLE_WORD_MAX_FRAMES
+    """Một TIẾNG duy nhất -> chặn cứng ~1 giây (13 frame @ 12.5 fps); trần tăng theo
+    số tiếng chứ không theo số từ ("notification" 1 từ 5 tiếng không bị bó)."""
+    from vieneu_utils.core_utils import SINGLE_WORD_MAX_FRAMES, SYLLABLE_CAP_PER_EXTRA
     assert max_expected_frames("tʃˈaː2w.") == SINGLE_WORD_MAX_FRAMES
     assert max_expected_frames("") == SINGLE_WORD_MAX_FRAMES
-    # Hai từ -> quay lại công thức tuyến tính.
-    assert max_expected_frames("tʃˈaː2w bˈaː6n.") > SINGLE_WORD_MAX_FRAMES
+    # Hai tiếng -> thêm SYLLABLE_CAP_PER_EXTRA frame, dù là hai từ hay một từ hai âm tiết.
+    assert max_expected_frames("tʃˈaː2w bˈaː6n.") == SINGLE_WORD_MAX_FRAMES + SYLLABLE_CAP_PER_EXTRA
+    assert max_expected_frames("ˌoʊkˈeɪ.") == SINGLE_WORD_MAX_FRAMES + SYLLABLE_CAP_PER_EXTRA
+    assert max_expected_frames("nˌoʊɾɪfɪkˈeɪʃən.") > 3 * SINGLE_WORD_MAX_FRAMES
     # Emotion cue tốn frame thật (cười/thở dài) -> không áp chặn cứng.
     assert max_expected_frames("<|emotion_1|>tʃˈaː2w.") > SINGLE_WORD_MAX_FRAMES
     # "Từ" dài bất thường (normalize dính) -> công thức thường lo.
