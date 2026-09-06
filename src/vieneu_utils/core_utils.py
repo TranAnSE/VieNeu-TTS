@@ -105,11 +105,22 @@ SYLLABLE_CAP_MAX_SYL = 4         # chunk dài hơn dùng công thức theo phone
 _SINGLE_WORD_MAX_PHONES = 24     # phoneme tối đa hợp lý cho MỘT tiếng
 
 
+def is_cue_only(phonemes: str) -> bool:
+    """Chunk chỉ gồm emotion cue ("[cười]", "[thở dài]"...), không có tiếng nào."""
+    ph = phonemes or ""
+    return "<|emotion_" in ph and not any(ch.isalpha() for ch in _FRAME_MARKUP_RE.sub("", ph))
+
+
 def max_expected_frames(phonemes: str) -> int:
     """Số frame TỐI ĐA hợp lý cho chunk có chuỗi ``phonemes`` này."""
     stripped = _FRAME_MARKUP_RE.sub("", phonemes or "")
     eff_len = len(stripped)
     cap = _FRAME_CAP_SLACK + int(np.ceil(MAX_FRAMES_PER_PHONE * eff_len))
+    if is_cue_only(phonemes):
+        # Cue đứng một mình: đo 48 lần sinh (2026-09) tiếng cười / thở dài / hắng
+        # giọng tự nhiên dài 5-12 frame; ca trượt EOS nhảy thẳng lên 19-60 frame.
+        # Xử lý như chunk 1 tiếng: trần ~1s, chạm trần => sinh lại (babble_suspect).
+        return min(cap, SINGLE_WORD_MAX_FRAMES)
     if "<|emotion_" not in (phonemes or ""):
         syl = max(1, syllable_count(phonemes))      # chuỗi rỗng / không nguyên âm -> coi như 1 tiếng
         # Một "tiếng" dài bất thường (> _SINGLE_WORD_MAX_PHONES phoneme mỗi tiếng) là
@@ -766,11 +777,14 @@ def babble_suspect(wav: np.ndarray, sr: int, phonemes: str, cap_frames: int,
     (đo A/B 720 chunk: mọi ca bịa thêm từ đều là chunk 1 tiếng ở 12-13/13 frame,
     chunk 1 tiếng bình thường EOS ở 6-9 frame).
     """
+    if n_frames is None:
+        n_frames = int(round(len(wav) / (sr / frames_per_sec)))
+    if is_cue_only(phonemes):
+        # Không đếm cụm được (một tràng cười là nhiều cụm) — chỉ dùng luật chạm trần.
+        return n_frames >= cap_frames - 1, 0, 0, n_frames
     syl = syllable_count(phonemes)
     if syl == 0 or syl > BABBLE_MAX_SYLLABLES or "<|emotion_" in (phonemes or ""):
         return False, syl, 0, 0
-    if n_frames is None:
-        n_frames = int(round(len(wav) / (sr / frames_per_sec)))
     bursts = count_speech_bursts(wav, sr)
     hit_cap = syl <= 2 and n_frames >= cap_frames - 1
     return (bursts > syl) or hit_cap, syl, bursts, n_frames
@@ -785,5 +799,6 @@ def babble_prefer(new, old) -> bool:
 
 
 def babble_log_line(best, tries: int, cap: int) -> str:
-    return (f"babble guard: chunk {best[1]} tiếng: {best[2]} cụm âm, {best[3]}/{cap} frame "
-            f"sau {tries} lần sinh lại" + (" — vẫn nghi ngờ" if best[0] else ""))
+    what = f"chunk {best[1]} tiếng: {best[2]} cụm âm" if best[1] else "cue đứng một mình"
+    return (f"babble guard: {what}, {best[3]}/{cap} frame sau {tries} lần sinh lại"
+            + (" — vẫn nghi ngờ" if best[0] else ""))

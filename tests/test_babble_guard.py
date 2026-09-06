@@ -1,5 +1,5 @@
 import numpy as np
-from vieneu_utils.core_utils import syllable_count, count_speech_bursts, babble_suspect, babble_prefer, max_expected_frames
+from vieneu_utils.core_utils import syllable_count, count_speech_bursts, babble_suspect, babble_prefer, max_expected_frames, is_cue_only
 
 
 def _tone(sr, dur, f=180.0, amp=0.3):
@@ -56,3 +56,16 @@ def test_frame_cap_by_syllables_not_words():
     assert max_expected_frames("nˌoʊɾɪfɪkˈeɪʃən.") > 13           # notification. (5 syllables): phoneme formula
     assert max_expected_frames("nˌoʊɾɪfɪkˈeɪʃən.") == 24 + 2 * len("nˌoʊɾɪfɪkˈeɪʃən.")
     assert max_expected_frames("tʃˈaː2w <|emotion_1|>") > 13     # emotion cue: no syllable cap
+
+
+def test_standalone_cue_capped_like_one_syllable():
+    sr = 48000
+    assert is_cue_only("<|emotion_1|>.")
+    assert not is_cue_only("tʃˈaː2w <|emotion_1|>.")
+    assert max_expected_frames("<|emotion_1|>.") == 13           # [cười] alone: ~1 s cap
+    assert max_expected_frames("<|emotion_2|>") == 13            # [thở dài] alone
+    assert max_expected_frames("tʃˈaː2w <|emotion_1|>.") > 13    # word + cue: phoneme formula
+    laugh = _tone(sr, 0.6)
+    assert babble_suspect(laugh, sr, "<|emotion_1|>.", 13, 8)[0] is False   # natural laugh, EOS early
+    assert babble_suspect(laugh, sr, "<|emotion_1|>.", 13, 13)[0] is True   # ran to the cap: regenerate
+    assert babble_suspect(laugh, sr, "tʃˈaː2w <|emotion_1|>.", 42, 42)[0] is False  # mixed: not checked
