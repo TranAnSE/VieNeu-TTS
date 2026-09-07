@@ -2570,16 +2570,18 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
 
         srt_tab.select(_srt_voices, outputs=[srt_voice, btn_generate_srt])
 
-        def _srt_run(srt_path, voice_choice, keep_timing, fmt):
+        def _srt_run(srt_path, voice_choice, keep_timing, fmt, use_batch_flag, batch_size):
             _STOP_EVENT.clear()
+            # Same Batch Size slider as the other tabs (GPU only; CPU goes cue by cue).
+            bs = max(1, int(batch_size)) if use_batch_flag else 1
             yield from srt_to_speech(
                 tts, srt_path, resolve_voice_id(voice_choice), bool(keep_timing), fmt,
-                stop_requested=_STOP_EVENT.is_set,
+                stop_requested=_STOP_EVENT.is_set, batch_size=bs,
             )
 
         srt_gen_event = btn_generate_srt.click(
             fn=wrap_with_estimate(_srt_run),
-            inputs=[srt_file, srt_voice, srt_keep_timing, srt_format],
+            inputs=[srt_file, srt_voice, srt_keep_timing, srt_format, use_batch, max_batch_size_run],
             outputs=[audio_output, status_output, estimate_output],
         )
         btn_generate_srt.click(lambda: gr.update(visible=False), outputs=[download_btn])
