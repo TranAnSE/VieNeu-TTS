@@ -34,6 +34,7 @@ except ImportError:
     HAS_FITZ = False
     fitz = None
 
+from apps.srt_speech import srt_to_speech
 from apps.ui_utils import (
     _format_duration,
     _split_estimate_status,
@@ -2139,6 +2140,23 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                         )
                 
                 # State to track current mode
+                    # --- TAB 3: SRT → SPEECH (Vietnamese subtitles in, one audio out) ---
+                    with gr.Tab("📝 SRT → Giọng nói", id="srt_tab") as srt_tab:
+                        gr.Markdown(
+                            "Tải lên file **.srt tiếng Việt** (đã có lời và mốc thời gian): mỗi câu được đọc bằng "
+                            "một giọng mẫu và ghép thành **một file audio** theo đúng mốc thời gian. Không dịch, không "
+                            "ghép video — cần các thứ đó thì dùng app VieNeu. Chỉ hỗ trợ VieNeu v3 (Turbo / Nano)."
+                        )
+                        srt_file = gr.File(label="📝 File phụ đề .srt", file_types=[".srt"], file_count="single", type="filepath")
+                        srt_voice = gr.Dropdown(choices=[], value=None, label="Giọng mẫu", allow_custom_value=True)
+                        with gr.Row():
+                            srt_keep_timing = gr.Checkbox(
+                                value=True, label="Giữ đúng mốc thời gian",
+                                info="Chèn khoảng lặng theo phụ đề; câu nào đọc dài hơn khung thì câu sau lùi lại, không đè lên nhau. Bỏ chọn để nối liền các câu.",
+                            )
+                            srt_format = gr.Radio(["wav", "mp3"], value="wav", label="Định dạng xuất")
+                        btn_generate_srt = gr.Button("🎵 Tạo audio từ SRT", variant="primary", interactive=False)
+
                 current_mode_state = gr.State("preset_mode")
                 
                 with gr.Row():
@@ -2401,6 +2419,40 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
             inputs=[audio_output],
             outputs=[download_btn]
         )
+
+        # --- SRT → speech ---
+        def _srt_voices():
+            """The loaded model's presets for the SRT tab, fetched when the tab
+            opens so the tab needs no plumbing into the model-load handler."""
+            if not model_loaded or tts is None:
+                return gr.update(choices=[], value=None), gr.update(interactive=False)
+            try:
+                voices = tts.list_preset_voices()
+            except Exception:
+                voices = []
+            default_v = getattr(tts, "_default_voice", None)
+            values = [v[1] if isinstance(v, tuple) else v for v in voices]
+            if default_v not in values and values:
+                default_v = values[0]
+            return gr.update(choices=voices, value=default_v), gr.update(interactive=bool(values) and hasattr(tts, "infer_batch"))
+
+        srt_tab.select(_srt_voices, outputs=[srt_voice, btn_generate_srt])
+
+        def _srt_run(srt_path, voice_choice, keep_timing, fmt):
+            _STOP_EVENT.clear()
+            yield from srt_to_speech(
+                tts, srt_path, resolve_voice_id(voice_choice), bool(keep_timing), fmt,
+                stop_requested=_STOP_EVENT.is_set,
+            )
+
+        srt_gen_event = btn_generate_srt.click(
+            fn=wrap_with_estimate(_srt_run),
+            inputs=[srt_file, srt_voice, srt_keep_timing, srt_format],
+            outputs=[audio_output, status_output, estimate_output],
+        )
+        btn_generate_srt.click(lambda: gr.update(visible=False), outputs=[download_btn])
+        btn_generate_srt.click(lambda: gr.update(interactive=True), outputs=btn_stop)
+        srt_gen_event.then(fn=on_audio_generated, inputs=[audio_output], outputs=[download_btn])
         # Also connect the stop button to hide download
         btn_stop.click(
             fn=lambda: gr.update(visible=False),
