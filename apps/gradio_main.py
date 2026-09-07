@@ -2109,6 +2109,23 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                         
                         btn_generate_conv = gr.Button("🎭 Bắt đầu hội thoại", variant="primary", interactive=False)
 
+                    # --- TAB 3: SRT → SPEECH (Vietnamese subtitles in, one audio out) ---
+                    with gr.Tab("📝 SRT", id="srt_tab") as srt_tab:
+                        gr.Markdown(
+                            "Tải lên file **.srt tiếng Việt** (đã có lời và mốc thời gian): mỗi câu được đọc bằng "
+                            "một giọng mẫu và ghép thành **một file audio** theo đúng mốc thời gian. Không dịch, không "
+                            "ghép video — cần các thứ đó thì dùng app VieNeu. Chỉ hỗ trợ VieNeu v3 (Turbo / Nano)."
+                        )
+                        srt_file = gr.File(label="📝 File phụ đề .srt", file_types=[".srt"], file_count="single", type="filepath")
+                        srt_voice = gr.Dropdown(choices=[], value=None, label="Giọng mẫu", allow_custom_value=True)
+                        with gr.Row():
+                            srt_keep_timing = gr.Checkbox(
+                                value=True, label="Giữ đúng mốc thời gian",
+                                info="Chèn khoảng lặng theo phụ đề; câu nào đọc dài hơn khung thì câu sau lùi lại, không đè lên nhau. Bỏ chọn để nối liền các câu.",
+                            )
+                            srt_format = gr.Radio(["wav", "mp3"], value="wav", label="Định dạng xuất")
+                        btn_generate_srt = gr.Button("🎵 Tạo audio từ SRT", variant="primary", interactive=False)
+
                 # Global Generation Settings
                 with gr.Row():
                     use_batch = gr.Checkbox(
@@ -2140,23 +2157,6 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                         )
                 
                 # State to track current mode
-                    # --- TAB 3: SRT → SPEECH (Vietnamese subtitles in, one audio out) ---
-                    with gr.Tab("📝 SRT", id="srt_tab") as srt_tab:
-                        gr.Markdown(
-                            "Tải lên file **.srt tiếng Việt** (đã có lời và mốc thời gian): mỗi câu được đọc bằng "
-                            "một giọng mẫu và ghép thành **một file audio** theo đúng mốc thời gian. Không dịch, không "
-                            "ghép video — cần các thứ đó thì dùng app VieNeu. Chỉ hỗ trợ VieNeu v3 (Turbo / Nano)."
-                        )
-                        srt_file = gr.File(label="📝 File phụ đề .srt", file_types=[".srt"], file_count="single", type="filepath")
-                        srt_voice = gr.Dropdown(choices=[], value=None, label="Giọng mẫu", allow_custom_value=True)
-                        with gr.Row():
-                            srt_keep_timing = gr.Checkbox(
-                                value=True, label="Giữ đúng mốc thời gian",
-                                info="Chèn khoảng lặng theo phụ đề; câu nào đọc dài hơn khung thì câu sau lùi lại, không đè lên nhau. Bỏ chọn để nối liền các câu.",
-                            )
-                            srt_format = gr.Radio(["wav", "mp3"], value="wav", label="Định dạng xuất")
-                        btn_generate_srt = gr.Button("🎵 Tạo audio từ SRT", variant="primary", interactive=False)
-
                 current_mode_state = gr.State("preset_mode")
                 
                 with gr.Row():
