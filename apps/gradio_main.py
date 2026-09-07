@@ -947,7 +947,7 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
         # ============================ v3 TURBO BRANCH ========================
         # VieNeu-TTS v3 Turbo: split the text into chunks and run them through the
         # batched serving engine (vieneu.v3_turbo_serve) so multiple chunks share
-        # each forward step (big GPU throughput win at Batch Size 32). Falls back
+        # each forward step (big GPU throughput win at Batch Size 16–64). Falls back
         # to single-utterance generation on CPU / 1 chunk / batching disabled.
         if "v3" in (current_backbone or "").lower():
             _t0 = time.time()
@@ -1866,7 +1866,8 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                 # v3 Turbo batches chunks through the serving engine → default 32.
                 # Must be set at creation: v3 is the default backbone, so the
                 # on_backbone_change handler (which also sets 32) never fires on load.
-                default_batch_size = 32 if "v3" in default_backbone.lower() else 4
+                # 16 is safe on 8 GB cards; the slider goes to 64 for bigger GPUs.
+                default_batch_size = 16 if "v3" in default_backbone.lower() else 4
 
                 backbone_select = gr.Dropdown(
                     list(BACKBONE_CONFIGS.keys()) + ["Custom Model"],
@@ -1975,9 +1976,9 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                                 btn_extract_pdf = gr.Button("📄 Trích xuất văn bản", variant="secondary", scale=1, min_width=150)
                             pdf_status = gr.Markdown(visible=False)
                         text_input = gr.Textbox(
-                            label=f"Văn bản",
+                            label="Văn bản",
                             lines=8,
-                            value=default_text,
+                            placeholder="Dán hoặc gõ văn bản cần đọc vào đây…",
                         )
                         
                         voice_select = gr.Dropdown(
@@ -1998,7 +1999,6 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                             placeholder="Phương: Chào mọi người, mình là Phương...",
                             lines=10,
                             elem_classes="script-box",
-                            value='Phương: Chào mọi người, mình là Phương. Hôm nay team có một announcement cực lớn về VieNeu-TTS Version 2. Đồng hành cùng mình là anh Dũng và Hùng. Hi guys!\n\nDũng: Yo, chào cả nhà. Mình sẽ đi thẳng vào technical side của bản nâng cấp này để mọi người có cái nhìn deep hơn nhé.\n\nHùng: Chào mọi người. Thật sự V2 là một huge milestone. Nó phá vỡ rào cản của những công cụ đọc văn bản khô khan, hướng tới một sự natural communication đúng nghĩa.\n\nPhương: Correct! Và bất ngờ nhất là: nãy giờ mọi người đang nghe bản demo được tạo ra 100% bằng VieNeu-TTS V2 đấy. Tụi mình đều là sản phẩm của AI hết. Amazing, right?\n\nDũng: Đỉnh thật sự! Tiện đây Hùng share thêm về cái nội công bên trong của model này đi.\n\nHùng: Chắc chắn rồi. Model được train trên 10000 hours audio chất lượng cao, nên nó hỗ trợ code-switching Anh Việt cực mượt, tự nhiên như podcast. Đặc biệt, dự án này hoàn toàn open-source để cộng đồng cùng phát triển.\n\nDũng: Về hiệu năng thì khỏi bàn. Khi test trên GPU quốc dân RTX 3060, tốc độ sinh audio nhanh gấp 10 lần realtime. Và đừng lo, nếu bạn không có card đồ hỏa xịn, tụi mình có sẵn bản CPU version để ai cũng có thể tiếp cận được.\n\nPhương: Tốc độ cực nhanh, hỗ trợ đa nền tảng và hoàn toàn miễn phí. Mọi người hãy cùng trải nghiệm nhé!'
                         )
                         
                         with gr.Row():
@@ -2073,6 +2073,14 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                             )
                             srt_format = gr.Radio(["wav", "mp3"], value="wav", label="Định dạng xuất")
                         btn_generate_srt = gr.Button("🎵 Tạo audio từ SRT", variant="primary", interactive=False)
+                        # Shipped sample so the expected .srt format is clear; clicking it
+                        # loads the file into the uploader.
+                        _srt_example = os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "srt", "sample_vi.srt")
+                        gr.Examples(
+                            examples=[[_srt_example]],
+                            inputs=[srt_file],
+                            label="Ví dụ file .srt (bấm để nạp thử — số thứ tự, mốc thời gian, lời thoại)",
+                        )
 
                     # --- TAB 4: VOICE CLONING (v3 Turbo / Nano, v2 GPU) ---
                     # Shown whenever the selected backbone can clone (load_model / on_backbone_change
@@ -2143,14 +2151,20 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                                 "**Đọc truyện, Hội thoại, SRT** và được giữ lại cho những lần mở app sau "
                                 "(lưu trong thư mục `~/.vieneu`). Chỉ VieNeu v3 (Turbo / Nano) lưu được."
                             )
+                            # Inputs on one line, the action button on its own line at its
+                            # natural size: a button stretched to the height of two labelled
+                            # textboxes looks like a slab and throws the row off balance.
                             with gr.Row():
                                 clone_save_name = gr.Textbox(label="Tên giọng", placeholder="VD: Anh Tuấn", scale=2)
                                 clone_save_desc = gr.Textbox(label="Mô tả (tuỳ chọn)", placeholder="nam, trầm, kể chuyện", scale=3)
-                                btn_save_voice = gr.Button("💾 Lưu giọng", variant="secondary", scale=1, min_width=130)
+                            btn_save_voice = gr.Button("💾 Lưu giọng", variant="secondary", size="sm", scale=0, min_width=160)
                             clone_save_status = gr.Markdown(visible=False)
-                            with gr.Row():
-                                user_voice_dd = gr.Dropdown(choices=[], value=None, label="Giọng đã lưu", scale=3)
-                                btn_delete_voice = gr.Button("🗑️ Xoá giọng đã chọn", variant="secondary", scale=1, min_width=130)
+                            # Saved voices: a label-less, container-less dropdown is exactly one
+                            # control tall, so a small delete button lines up with it.
+                            gr.Markdown("**Giọng đã lưu**", elem_classes="field-caption")
+                            with gr.Row(elem_classes="inline-row"):
+                                user_voice_dd = gr.Dropdown(choices=[], value=None, show_label=False, container=False, scale=4)
+                                btn_delete_voice = gr.Button("🗑️ Xoá", variant="secondary", size="sm", scale=0, min_width=110)
 
                 # Global Generation Settings
                 with gr.Row():
@@ -2161,7 +2175,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                     )
                     max_batch_size_run = gr.Slider(
                         minimum=1,
-                        maximum=32,
+                        maximum=64,
                         value=default_batch_size,
                         step=1,
                         label="📊 Batch Size (Generation)",
@@ -2261,19 +2275,19 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
             if is_v3:
                 # v3 Turbo uses its own MOSS codec (PyTorch); 0.8 khớp bản tham chiếu.
                 codec_update = gr.update(value="VieNeu-Codec", interactive=False)
-                text_update = gr.update(value=DEFAULT_TEXT_V3)
+                text_update = gr.update()  # ô văn bản để trống, không điền mẫu
                 temp_update = gr.update(value=0.8)
             elif "Turbo" in choice:
                 codec_update = gr.update(value="VieNeu-Codec", interactive=False)
-                text_update = gr.update(value=DEFAULT_TEXT_TURBO)
+                text_update = gr.update()  # ô văn bản để trống, không điền mẫu
                 temp_update = gr.update(value=0.4)
             elif "(CPU)" in choice:
                 codec_update = gr.update(value="NeuCodec (ONNX)", interactive=False)
-                text_update = gr.update(value=DEFAULT_TEXT_GPU)
+                text_update = gr.update()  # ô văn bản để trống, không điền mẫu
                 temp_update = gr.update(value=0.7)
             else:
                 codec_update = gr.update(value="NeuCodec (Distill)", interactive=False)
-                text_update = gr.update(value=DEFAULT_TEXT_GPU)
+                text_update = gr.update()  # ô văn bản để trống, không điền mẫu
                 temp_update = gr.update(value=0.7)
 
             # Reference-transcript box + info text differ between v2 and v3 clone.
@@ -2297,7 +2311,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                 gr.update(choices=dev_choices, value=initial_dev),
                 gr.update(visible=clone_ok),   # cloning_elements_group
                 gr.update(visible=clone_ok),   # tab_custom — clone tab (v3 + v2 GPU)
-                gr.update(value=32 if is_v3 else 4),  # max_batch_size_run — v3 batches chunks
+                gr.update(value=16 if is_v3 else 4),  # max_batch_size_run — v3 batches chunks (slider up to 64)
                 gr.update(visible=not is_v3),  # use_lmdeploy_cb — irrelevant for v3 (PyTorch, no LMDeploy)
                 gr.update(visible=is_v2_gpu),  # v2_ref_text_group — transcript box + transcript examples (v2 only)
                 gr.update(visible=not is_v2_gpu),  # v3_ref_examples_group — audio-only examples

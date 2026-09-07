@@ -178,6 +178,7 @@ include = ["vieneu*", "vieneu_utils*", "apps*", "examples*"]
 
 [tool.setuptools.package-data]
 vieneu = ["assets/*.json", "assets/samples/*"]
+examples = ["audio_ref/*.wav", "srt/*.srt"]  # samples the Gradio app (vieneu-web) offers
 
 [tool.uv.sources]
 
