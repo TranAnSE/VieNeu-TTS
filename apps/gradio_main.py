@@ -2141,7 +2141,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                 
                 # State to track current mode
                     # --- TAB 3: SRT → SPEECH (Vietnamese subtitles in, one audio out) ---
-                    with gr.Tab("📝 SRT → Giọng nói", id="srt_tab") as srt_tab:
+                    with gr.Tab("📝 SRT", id="srt_tab") as srt_tab:
                         gr.Markdown(
                             "Tải lên file **.srt tiếng Việt** (đã có lời và mốc thời gian): mỗi câu được đọc bằng "
                             "một giọng mẫu và ghép thành **một file audio** theo đúng mốc thời gian. Không dịch, không "
