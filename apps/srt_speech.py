@@ -175,10 +175,19 @@ def srt_to_speech(
 
     sr = int(getattr(tts, "sample_rate", 48000))
     n = len(cues)
+    # Only the PyTorch/CUDA engine batches; on CPU (ONNX) infer_batch would run
+    # the cues one after another anyway, so go cue by cue there and report
+    # per cue — a 32-cue "batch" on CPU is minutes of silence in the status.
+    dev = getattr(getattr(tts, "engine", None), "device", None)
+    is_cuda = dev is not None and getattr(dev, "type", None) == "cuda"
+    if not is_cuda:
+        batch_size = 1
     batches = [cues[i:i + batch_size] for i in range(0, n, batch_size)]
+    unit = "batch" if is_cuda else "đoạn"
     clips: list[np.ndarray] = []
     t0 = time.time()
-    yield None, f"📄 {n} câu thoại, giọng {voice_id}. Đang xử lý batch 1/{len(batches)}..."
+    where = f"GPU, gộp {batch_size} câu/lượt" if is_cuda else "CPU, từng câu"
+    yield None, f"📄 {n} câu thoại, giọng {voice_id} ({where}). Đang xử lý {unit} 1/{len(batches)}..."
     for bi, batch in enumerate(batches, 1):
         if stop_requested():
             yield None, "⏹️ Đã dừng."
@@ -186,12 +195,12 @@ def srt_to_speech(
         try:
             wavs = tts.infer_batch([c.text for c in batch], voice=voice_id)
         except Exception as e:  # noqa: BLE001
-            yield None, f"❌ Lỗi tổng hợp ở batch {bi}: {e}"
+            yield None, f"❌ Lỗi tổng hợp ở {unit} {bi}: {e}"
             return
         clips.extend(_to_mono_f32(w) for w in wavs)
         done = min(bi * batch_size, n)
         if bi < len(batches):
-            yield None, f"🔊 Xong {done}/{n} câu ({time.time() - t0:.0f}s). Đang xử lý batch {bi + 1}/{len(batches)}..."
+            yield None, f"🔊 Xong {done}/{n} câu ({time.time() - t0:.0f}s). Đang xử lý {unit} {bi + 1}/{len(batches)}..."
 
     if keep_timing:
         track, pushed, max_shift = lay_on_timeline(clips, cues, sr)
