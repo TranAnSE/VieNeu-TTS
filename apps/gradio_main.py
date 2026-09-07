@@ -35,13 +35,15 @@ except ImportError:
     fitz = None
 
 from apps.srt_speech import srt_to_speech
+from apps.user_voices import (
+    load_user_voices, save_user_voice, delete_user_voice, list_user_voices, supports_saving,
+)
 from apps.ui_utils import (
     _format_duration,
     _split_estimate_status,
     wrap_with_estimate,
     cleanup_gpu_memory,
     get_ref_text_cached,
-    on_codec_change,
     validate_audio_duration,
     on_custom_id_change
 )
@@ -304,7 +306,7 @@ def load_model(backbone_choice: str, codec_choice: str, device_choice: str,
         gr.update(interactive=False), # btn_load
         gr.update(interactive=False), # btn_stop
         gr.update(), # voice_select
-        gr.update(), gr.update(), gr.update(), gr.update(), # tab_p, tab_c, tab_sel, mode_state
+        gr.update(), # tab_custom
         gr.update(), # conv_tab
         *slot_no_updates
     )
@@ -325,7 +327,7 @@ def load_model(backbone_choice: str, codec_choice: str, device_choice: str,
                 yield (
                     "❌ Lỗi: Vui lòng nhập Model ID cho Custom Model.",
                     gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=True), gr.update(interactive=False), gr.update(),
-                    gr.update(), gr.update(), gr.update(), gr.update(),
+                    gr.update(), # tab_custom
                     gr.update(), # conv_tab
                     *slot_no_updates
                 )
@@ -428,7 +430,7 @@ def load_model(backbone_choice: str, codec_choice: str, device_choice: str,
                          gr.update(interactive=False),
                          gr.update(interactive=False),
                          gr.update(),
-                         gr.update(), gr.update(), gr.update(), gr.update(),
+                         gr.update(), # tab_custom
                          gr.update(), # conv_tab
                          *slot_no_updates
                     )
@@ -716,6 +718,14 @@ def load_model(backbone_choice: str, codec_choice: str, device_choice: str,
         if warning_msg:
             success_msg += warning_msg
             
+        # Voices the user saved from the Voice Cloning tab (v3 only), on top of the built-ins.
+        try:
+            _saved = load_user_voices(tts)
+            if _saved:
+                print(f"   💾 Loaded {len(_saved)} saved voice(s): {', '.join(_saved)}")
+        except Exception as _e:  # noqa: BLE001
+            print(f"   ⚠️ Không đọc được giọng đã lưu: {_e}")
+
         # Prepare voice update
         try:
             # Get voices with descriptions for UI from SDK
@@ -766,22 +776,14 @@ def load_model(backbone_choice: str, codec_choice: str, device_choice: str,
             
             slot_dd_update = gr.update(choices=CONV_VOICES_CACHE)
             
-            # Show Standard Tabs
-            tab_p = gr.update(visible=True)
             tab_c = gr.update(visible=_supports_cloning(backbone_choice))
-            tab_sel = gr.update(selected="preset_mode")
-            mode_state = "preset_mode"
         else:
             # Missing voices.json case
             msg = "⚠️ Không tìm thấy file voices.json. Vui lòng dùng Tab Voice Cloning."
             voice_update = gr.update(choices=[msg], value=msg, interactive=False)
             slot_dd_update = gr.update(choices=[])
             
-            # Show Preset Tab (to see message) and Custom Tab
-            tab_p = gr.update(visible=True)
             tab_c = gr.update(visible=_supports_cloning(backbone_choice))
-            tab_sel = gr.update(selected="preset_mode")
-            mode_state = "preset_mode"
 
         # Conversation tab: available for v2 (sequential) and v3 Turbo (batched).
         is_v2 = (backbone_choice == "VieNeu-TTS-v2 (GPU)" or backbone_choice == "VieNeu-TTS-v2 (CPU)")
@@ -798,7 +800,7 @@ def load_model(backbone_choice: str, codec_choice: str, device_choice: str,
             gr.update(interactive=True), # btn_load
             gr.update(interactive=False), # btn_stop
             voice_update,
-            tab_p, tab_c, tab_sel, mode_state,
+            tab_c,
             conv_tab_update,
             *slot_updates
         )
@@ -1369,6 +1371,8 @@ def synthesize_speech(text: str, voice_choice: str, custom_audio, custom_text: s
                 tts.cleanup_memory()
             
             cleanup_gpu_memory()
+
+DEFAULT_CLONE_TEXT = "Xin chào, đây là giọng nói vừa được nhân bản từ đoạn audio mẫu của bạn. Nghe có giống không?"
 
 synthesize_speech_with_estimate = wrap_with_estimate(synthesize_speech)
 
@@ -1976,66 +1980,10 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                             value=default_text,
                         )
                         
-                        with gr.Tabs() as tabs:
-                            with gr.TabItem("👤 Preset", id="preset_mode") as tab_preset:
-                                voice_select = gr.Dropdown(choices=[], value=None, label="Giọng mẫu", allow_custom_value=True)
-                            
-                            # Voice cloning is only available on v3+ models. Hidden by
-                            # default and toggled on by on_backbone_change when a v3
-                            # model is selected.
-                            with gr.TabItem("🦜 Voice Cloning", id="custom_mode", visible=False) as tab_custom:
-                                # Initial clone-tab state must match the DEFAULT backbone:
-                                # on_backbone_change only fires when the dropdown changes, so a
-                                # v2-GPU default would otherwise keep v3's "no transcript" copy
-                                # and a hidden reference-text box (-> false "missing ref text").
-                                _default_is_v2_gpu = (default_backbone == "VieNeu-TTS-v2 (GPU)")
-                                clone_info_md = gr.Markdown(
-                                    "ℹ️ **Voice Cloning (VieNeu-TTS v2).** Tải lên audio mẫu 3–5 giây "
-                                    "và **nhập đúng nội dung** của audio đó (kể cả dấu câu) — v2 cần "
-                                    "reference transcript để clone giọng."
-                                    if _default_is_v2_gpu else
-                                    "ℹ️ **Voice Cloning (VieNeu-TTS v3).** Chỉ cần tải lên audio mẫu "
-                                    "3–5 giây; v3 clone trực tiếp từ audio, không cần nhập nội dung."
-                                )
-                                with gr.Group(visible=True) as cloning_elements_group:
-                                    custom_audio = gr.Audio(label="Audio giọng mẫu (3-5 giây) (.wav)", type="filepath")
-                                    cloning_warning_msg = gr.Markdown(visible=False, elem_id="cloning-warning")
-                                    denoise_checkbox = gr.Checkbox(
-                                        value=True, label="🔇 Denoise audio mẫu",
-                                        info="Khử nhiễu nền + chuẩn hoá audio mẫu trước khi clone (khuyến nghị). Audio dài hơn 8 giây sẽ được cắt ngắn.",
-                                    )
-                                    # v3 clones from audio only — the reference transcript box AND
-                                    # its transcript-bearing example table live in one group that is
-                                    # hidden for v3 (toggled by on_backbone_change). gr.Examples keeps
-                                    # its own Dataset copy of the columns, so hiding only the textbox
-                                    # would leave the transcript column on screen (issue #191).
-                                    _ref_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "audio_ref")
-                                    _ref_examples = [
-                                        [os.path.join(_ref_dir, "example.wav"), "Ví dụ 2. Tính trung bình của dãy số."],
-                                        [os.path.join(_ref_dir, "example_2.wav"), "Trên thực tế, các nghi ngờ đã bắt đầu xuất hiện."],
-                                        [os.path.join(_ref_dir, "example_3.wav"), "Cậu có nhìn thấy không?"],
-                                        [os.path.join(_ref_dir, "example_4.wav"), "Tết là dịp mọi người háo hức đón chào một năm mới với nhiều hy vọng và mong ước."],
-                                    ]
-                                    with gr.Group(visible=_default_is_v2_gpu) as v2_ref_text_group:
-                                        custom_text = gr.Textbox(label="Nội dung audio mẫu - vui lòng gõ đúng nội dung của audio mẫu - kể cả dấu câu vì model rất nhạy cảm với dấu câu (.,?!)")
-                                        gr.Examples(
-                                            examples=_ref_examples,
-                                            inputs=[custom_audio, custom_text],
-                                            label="Ví dụ mẫu để thử nghiệm clone giọng"
-                                        )
-                                    # v3: audio-only examples (no transcript column).
-                                    with gr.Group(visible=not _default_is_v2_gpu) as v3_ref_examples_group:
-                                        gr.Examples(
-                                            examples=[[row[0]] for row in _ref_examples],
-                                            inputs=[custom_audio],
-                                            label="Ví dụ mẫu để thử nghiệm clone giọng (v3 chỉ cần audio)"
-                                        )
-
-                                    gr.Markdown("""
-                                    **💡 Mẹo nhỏ:** Nếu kết quả Zero-shot Voice Cloning chưa như ý, bạn hãy cân nhắc **Finetune (LoRA)** để đạt chất lượng tốt nhất. 
-                                    Hướng dẫn chi tiết có tại file: `finetune/README.md` hoặc xem trên [GitHub](https://github.com/pnnbao97/VieNeu-TTS/tree/main/finetune).
-                                    """)
-                        
+                        voice_select = gr.Dropdown(
+                            choices=[], value=None, label="Giọng mẫu", allow_custom_value=True,
+                            info="Giọng bạn lưu ở tab Voice Cloning cũng nằm trong danh sách này.",
+                        )
                         generation_mode = gr.Radio(
                             ["Standard (Một lần)"],
                             value="Standard (Một lần)",
@@ -2126,6 +2074,84 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                             srt_format = gr.Radio(["wav", "mp3"], value="wav", label="Định dạng xuất")
                         btn_generate_srt = gr.Button("🎵 Tạo audio từ SRT", variant="primary", interactive=False)
 
+                    # --- TAB 4: VOICE CLONING (v3 Turbo / Nano, v2 GPU) ---
+                    # Shown whenever the selected backbone can clone (load_model / on_backbone_change
+                    # keep it in sync); the default backbone is v3 Turbo, so it is visible from the start.
+                    with gr.Tab("🎤 Voice Cloning", id="clone_tab", visible=_supports_cloning(default_backbone)) as tab_custom:
+                        # Initial clone-tab state must match the DEFAULT backbone:
+                        # on_backbone_change only fires when the dropdown changes, so a
+                        # v2-GPU default would otherwise keep v3's "no transcript" copy
+                        # and a hidden reference-text box (-> false "missing ref text").
+                        _default_is_v2_gpu = (default_backbone == "VieNeu-TTS-v2 (GPU)")
+                        clone_info_md = gr.Markdown(
+                            "ℹ️ **Voice Cloning (VieNeu-TTS v2).** Tải lên audio mẫu 3–5 giây "
+                            "và **nhập đúng nội dung** của audio đó (kể cả dấu câu) — v2 cần "
+                            "reference transcript để clone giọng."
+                            if _default_is_v2_gpu else
+                            "ℹ️ **Voice Cloning (VieNeu-TTS v3).** Chỉ cần tải lên audio mẫu "
+                            "3–5 giây; v3 clone trực tiếp từ audio, không cần nhập nội dung."
+                        )
+                        with gr.Group(visible=True) as cloning_elements_group:
+                            custom_audio = gr.Audio(label="Audio giọng mẫu (3-5 giây) (.wav)", type="filepath")
+                            cloning_warning_msg = gr.Markdown(visible=False, elem_id="cloning-warning")
+                            denoise_checkbox = gr.Checkbox(
+                                value=True, label="🔇 Denoise audio mẫu",
+                                info="Khử nhiễu nền + chuẩn hoá audio mẫu trước khi clone (khuyến nghị). Audio dài hơn 8 giây sẽ được cắt ngắn.",
+                            )
+                            # v3 clones from audio only — the reference transcript box AND
+                            # its transcript-bearing example table live in one group that is
+                            # hidden for v3 (toggled by on_backbone_change). gr.Examples keeps
+                            # its own Dataset copy of the columns, so hiding only the textbox
+                            # would leave the transcript column on screen (issue #191).
+                            _ref_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "audio_ref")
+                            _ref_examples = [
+                                [os.path.join(_ref_dir, "example.wav"), "Ví dụ 2. Tính trung bình của dãy số."],
+                                [os.path.join(_ref_dir, "example_2.wav"), "Trên thực tế, các nghi ngờ đã bắt đầu xuất hiện."],
+                                [os.path.join(_ref_dir, "example_3.wav"), "Cậu có nhìn thấy không?"],
+                                [os.path.join(_ref_dir, "example_4.wav"), "Tết là dịp mọi người háo hức đón chào một năm mới với nhiều hy vọng và mong ước."],
+                            ]
+                            with gr.Group(visible=_default_is_v2_gpu) as v2_ref_text_group:
+                                custom_text = gr.Textbox(label="Nội dung audio mẫu - vui lòng gõ đúng nội dung của audio mẫu - kể cả dấu câu vì model rất nhạy cảm với dấu câu (.,?!)")
+                                gr.Examples(
+                                    examples=_ref_examples,
+                                    inputs=[custom_audio, custom_text],
+                                    label="Ví dụ mẫu để thử nghiệm clone giọng"
+                                )
+                            # v3: audio-only examples (no transcript column).
+                            with gr.Group(visible=not _default_is_v2_gpu) as v3_ref_examples_group:
+                                gr.Examples(
+                                    examples=[[row[0]] for row in _ref_examples],
+                                    inputs=[custom_audio],
+                                    label="Ví dụ mẫu để thử nghiệm clone giọng (v3 chỉ cần audio)"
+                                )
+
+                            gr.Markdown("""
+                            **💡 Mẹo nhỏ:** Nếu kết quả Zero-shot Voice Cloning chưa như ý, bạn hãy cân nhắc **Finetune (LoRA)** để đạt chất lượng tốt nhất. 
+                            Hướng dẫn chi tiết có tại file: `finetune/README.md` hoặc xem trên [GitHub](https://github.com/pnnbao97/VieNeu-TTS/tree/main/finetune).
+                            """)
+
+                        clone_text_input = gr.Textbox(
+                            label="Văn bản đọc thử bằng giọng vừa clone",
+                            lines=4,
+                            value=DEFAULT_CLONE_TEXT,
+                        )
+                        btn_generate_clone = gr.Button("🎵 Tạo giọng nói", variant="primary", interactive=False)
+
+                        with gr.Accordion("💾 Lưu giọng này vào danh sách giọng mẫu", open=True):
+                            gr.Markdown(
+                                "Đặt tên rồi bấm **Lưu giọng**: giọng sẽ có trong danh sách giọng mẫu của "
+                                "**Đọc truyện, Hội thoại, SRT** và được giữ lại cho những lần mở app sau "
+                                "(lưu trong thư mục `~/.vieneu`). Chỉ VieNeu v3 (Turbo / Nano) lưu được."
+                            )
+                            with gr.Row():
+                                clone_save_name = gr.Textbox(label="Tên giọng", placeholder="VD: Anh Tuấn", scale=2)
+                                clone_save_desc = gr.Textbox(label="Mô tả (tuỳ chọn)", placeholder="nam, trầm, kể chuyện", scale=3)
+                                btn_save_voice = gr.Button("💾 Lưu giọng", variant="secondary", scale=1, min_width=130)
+                            clone_save_status = gr.Markdown(visible=False)
+                            with gr.Row():
+                                user_voice_dd = gr.Dropdown(choices=[], value=None, label="Giọng đã lưu", scale=3)
+                                btn_delete_voice = gr.Button("🗑️ Xoá giọng đã chọn", variant="secondary", scale=1, min_width=130)
+
                 # Global Generation Settings
                 with gr.Row():
                     use_batch = gr.Checkbox(
@@ -2156,8 +2182,10 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                             info="Độ dài tối đa mỗi đoạn xử lý (mặc định: 256)."
                         )
                 
-                # State to track current mode
+                # synthesize_speech(mode_tab=...): the story tab always reads a preset,
+                # the Voice Cloning tab always clones from the uploaded sample.
                 current_mode_state = gr.State("preset_mode")
+                clone_mode_state = gr.State("custom_mode")
                 
                 with gr.Row():
                     btn_stop = gr.Button("⏹️ Dừng", variant="stop", scale=1, interactive=False)
@@ -2198,16 +2226,13 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
                     visible=_watermark_available(),
                 )
         
+        # ONNX codecs (v2 CPU) cannot clone: hide the tab; v3 / v2 GPU keep it.
         codec_select.change(
-            on_codec_change, 
-            inputs=[codec_select, current_mode_state], 
-            outputs=[tab_custom, tabs, current_mode_state]
+            lambda codec, bb: gr.update(visible=_supports_cloning(bb) and "onnx" not in (codec or "").lower()),
+            inputs=[codec_select, backbone_select],
+            outputs=[tab_custom],
         )
-        
-        # Bind tab events to update state
-        tab_preset.select(lambda: "preset_mode", outputs=current_mode_state)
-        tab_custom.select(lambda: "custom_mode", outputs=current_mode_state)
-        
+
         custom_audio.change(validate_audio_duration, inputs=[custom_audio], outputs=[cloning_warning_msg])
         
         # --- Custom Model Event Handlers ---
@@ -2306,15 +2331,26 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
             outputs=[custom_backbone_base_model, custom_audio, custom_text]
         )
 
-        btn_load.click(
+        load_event = btn_load.click(
             fn=load_model,
             inputs=[backbone_select, codec_select, device_choice, use_lmdeploy_cb,
                     custom_backbone_model_id, custom_backbone_base_model, custom_backbone_hf_token],
             outputs=[model_status, btn_generate, btn_generate_conv, btn_load, btn_stop, voice_select,
-                     tab_preset, tab_custom, tabs, current_mode_state,
+                     tab_custom,
                      conv_tab,
                      *speaker_voice_dds]
         )
+
+        # --- Voice Cloning tab: generate button + saved-voice list follow the model state ---
+        def _user_voice_choices():
+            names = list_user_voices(tts) if model_loaded else []
+            return gr.update(choices=names, value=names[0] if names else None)
+
+        def _after_model_load():
+            return gr.update(interactive=bool(model_loaded)), _user_voice_choices()
+
+        btn_load.click(lambda: gr.update(interactive=False), outputs=btn_generate_clone)
+        load_event.then(_after_model_load, outputs=[btn_generate_clone, user_voice_dd])
         
         # --- PDF Upload Event Handlers ---
         def on_pdf_upload(pdf_file):
@@ -2376,6 +2412,11 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
             inputs=backbone_select,
             outputs=temperature_slider
         )
+        tab_custom.select(
+            fn=lambda bb: gr.update(value=0.8 if "v3" in (bb or "").lower() else default_temp),
+            inputs=backbone_select,
+            outputs=temperature_slider
+        )
         
         # --- Standard Generation Handlers ---
         gen_event = btn_generate.click(
@@ -2389,6 +2430,82 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
         btn_generate.click(lambda: gr.update(visible=False), outputs=[download_btn])
         btn_generate.click(lambda: gr.update(interactive=True), outputs=btn_stop)
         gen_event.then(lambda: gr.update(interactive=False), outputs=btn_stop)
+
+        # --- Voice Cloning: same synthesis path, clone mode, its own text box ---
+        clone_gen_event = btn_generate_clone.click(
+            fn=synthesize_speech_with_estimate,
+            inputs=[clone_text_input, voice_select, custom_audio, custom_text, clone_mode_state,
+                    generation_mode, use_batch, max_batch_size_run,
+                    temperature_slider, max_chars_chunk_slider,
+                    denoise_checkbox, session_id_state],
+            outputs=[audio_output, status_output, estimate_output]
+        )
+        btn_generate_clone.click(lambda: gr.update(visible=False), outputs=[download_btn])
+        btn_generate_clone.click(lambda: gr.update(interactive=True), outputs=btn_stop)
+        clone_gen_event.then(lambda: gr.update(interactive=False), outputs=btn_stop)
+
+        # --- Save / delete a cloned voice as a preset ---
+        def _refresh_voice_caches():
+            """Recompute the dropdown lists after the preset table changed."""
+            global PRESET_VOICES_CACHE, CONV_VOICES_CACHE
+            try:
+                voices = tts.list_preset_voices()
+            except Exception:
+                voices = []
+            if voices and isinstance(voices[0], tuple):
+                voices.sort(key=lambda x: str(x[0]))
+            else:
+                voices.sort()
+            PRESET_VOICES_CACHE = voices
+
+            def _podcast(v_id):
+                val = tts._preset_voices.get(v_id, {}).get("podcast", True)
+                return val.strip().lower() == "true" if isinstance(val, str) else bool(val)
+
+            CONV_VOICES_CACHE = [v for v in voices if _podcast(v[1] if isinstance(v, tuple) else v)]
+
+        def _voice_list_updates(select_voice=None):
+            """Updates for every preset dropdown: story (optionally selecting the new
+            voice), SRT, and the conversation speaker slots (keep their values)."""
+            story = gr.update(choices=PRESET_VOICES_CACHE, value=select_voice) if select_voice else gr.update(choices=PRESET_VOICES_CACHE)
+            return [story, gr.update(choices=PRESET_VOICES_CACHE), *([gr.update(choices=CONV_VOICES_CACHE)] * MAX_SPEAKERS)]
+
+        def _save_voice(audio_path, name, desc, denoise):
+            no_change = [gr.update()] * (2 + MAX_SPEAKERS)
+            if not model_loaded or tts is None:
+                return [gr.update(value="⚠️ Vui lòng tải model trước!", visible=True), gr.update(), *no_change]
+            if not supports_saving(tts):
+                return [gr.update(value="⚠️ Chỉ VieNeu v3 (Turbo / Nano) mới lưu được giọng.", visible=True), gr.update(), *no_change]
+            try:
+                v_id = save_user_voice(tts, name, audio_path, denoise=bool(denoise), description=desc)
+            except Exception as e:  # noqa: BLE001
+                return [gr.update(value=f"❌ {e}", visible=True), gr.update(), *no_change]
+            _refresh_voice_caches()
+            msg = f"✅ Đã lưu giọng **{v_id}** — đã có trong danh sách giọng mẫu của Đọc truyện, Hội thoại và SRT."
+            return [gr.update(value=msg, visible=True), _user_voice_choices(), *_voice_list_updates(select_voice=v_id)]
+
+        btn_save_voice.click(
+            fn=_save_voice,
+            inputs=[custom_audio, clone_save_name, clone_save_desc, denoise_checkbox],
+            outputs=[clone_save_status, user_voice_dd, voice_select, srt_voice, *speaker_voice_dds],
+        )
+
+        def _delete_voice(name):
+            no_change = [gr.update()] * (2 + MAX_SPEAKERS)
+            if not name:
+                return [gr.update(value="⚠️ Chọn giọng cần xoá.", visible=True), gr.update(), *no_change]
+            try:
+                delete_user_voice(tts, name)
+            except Exception as e:  # noqa: BLE001
+                return [gr.update(value=f"❌ {e}", visible=True), gr.update(), *no_change]
+            _refresh_voice_caches()
+            return [gr.update(value=f"🗑️ Đã xoá giọng **{name}**.", visible=True), _user_voice_choices(), *_voice_list_updates()]
+
+        btn_delete_voice.click(
+            fn=_delete_voice,
+            inputs=[user_voice_dd],
+            outputs=[clone_save_status, user_voice_dd, voice_select, srt_voice, *speaker_voice_dds],
+        )
 
         # --- Stop Button ---
         def request_stop():
@@ -2419,6 +2536,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
             inputs=[audio_output],
             outputs=[download_btn]
         )
+        clone_gen_event.then(fn=on_audio_generated, inputs=[audio_output], outputs=[download_btn])
 
         # --- SRT → speech ---
         def _srt_voices():
@@ -2463,7 +2581,7 @@ with gr.Blocks(theme=theme, css=css, title="VieNeu-TTS", head=head_html) as demo
         demo.load(
             fn=restore_ui_state,
             outputs=[model_status, btn_generate, btn_generate_conv, btn_stop]
-        )
+        ).then(_after_model_load, outputs=[btn_generate_clone, user_voice_dd])
 
 def main():
     # Cho phép override từ biến môi trường (hữu ích cho Docker)

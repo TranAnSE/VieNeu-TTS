@@ -334,8 +334,18 @@ class VieNeuTTSv3Turbo:
     def _load_mono(self, ref_audio: Union[str, "torch.Tensor"], sr: Optional[int]) -> Tuple[torch.Tensor, int]:
         """Return ``(wav (1, T) float32, sr)`` from a path or an in-memory waveform."""
         if isinstance(ref_audio, (str, bytes)) or hasattr(ref_audio, "__fspath__"):
-            import torchaudio
-            wav, sr = torchaudio.load(str(ref_audio))
+            # soundfile is a base dependency; torchaudio is NOT part of the [cuda]
+            # extra, so it is only a fallback for formats libsndfile cannot read.
+            try:
+                import soundfile as sf
+                data, sr = sf.read(str(ref_audio), dtype="float32", always_2d=True)   # (T, C)
+                wav = torch.from_numpy(np.ascontiguousarray(data.T))                    # (C, T)
+            except Exception as e:  # noqa: BLE001
+                try:
+                    import torchaudio
+                except ImportError:
+                    raise RuntimeError(f"Không đọc được audio mẫu '{ref_audio}': {e}") from e
+                wav, sr = torchaudio.load(str(ref_audio))
         else:
             wav = torch.as_tensor(ref_audio, dtype=torch.float32)
             if sr is None:
@@ -346,10 +356,20 @@ class VieNeuTTSv3Turbo:
             wav = wav.mean(0, keepdim=True)
         return wav.float(), sr
 
+    @staticmethod
+    def _resample(wav: torch.Tensor, sr: int, target: int) -> torch.Tensor:
+        """(C, T) → (C, T') via soxr (base dependency); torchaudio only as a fallback."""
+        try:
+            import soxr
+            out = soxr.resample(wav.cpu().numpy().T, sr, target)         # (T, C) in / out
+            return torch.from_numpy(np.ascontiguousarray(out.T.astype(np.float32)))
+        except ImportError:
+            import torchaudio
+            return torchaudio.functional.resample(wav, sr, target)
+
     def _encode_ref_wav(self, wav: torch.Tensor, sr: int) -> np.ndarray:
-        import torchaudio
         if sr != self.SAMPLE_RATE:
-            wav = torchaudio.functional.resample(wav, sr, self.SAMPLE_RATE)
+            wav = self._resample(wav, sr, self.SAMPLE_RATE)
         n_ch = int(getattr(self.audio_tokenizer.config, 'number_channels', 2))
         wav = wav.repeat(n_ch, 1) if wav.shape[0] == 1 else wav[:n_ch]
         wav = wav.unsqueeze(0).to(self.device)
